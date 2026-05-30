@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.metadata
 import json
 import os
 import uuid
@@ -61,6 +62,12 @@ async def check_deepseek_health() -> dict:
     except Exception as exc:
         return {"status": "error", "error": str(exc)[:200]}
 
+
+# ── Version centralisée ────────────────────────────────────────────
+try:
+    VERSION = importlib.metadata.version("nexus-debug")
+except importlib.metadata.PackageNotFoundError:
+    VERSION = "2.2.1-dev"  # fallback pour développement local
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 API_PORT = int(os.getenv("NEXUS_API_PORT", "9001"))
@@ -352,7 +359,7 @@ async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="Nexus-debug API",
-    version="2.1.0",
+    version=VERSION,
     description="🧬 Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -425,7 +432,7 @@ async def health() -> dict[str, Any]:
     deepseek = await check_deepseek_health()
     return {
         "status": "ok",
-        "version": "2.1.0",
+        "version": VERSION,
         "service": "nexus-debug",
         "db_connected": db._conn is not None,
         "deepseek": deepseek,
@@ -556,6 +563,7 @@ async def kb_stats_endpoint() -> dict[str, Any]:
 
 
 @app.post("/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)")
+@limiter.limit(RATE_LIMIT)
 async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
 
@@ -617,6 +625,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
 
 @app.post("/webhook/jira", tags=[TAG_WEBHOOK], summary="Webhook entrant Jira (issuetype: Bug)")
+@limiter.limit(RATE_LIMIT)
 async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.json()
     event_type = body.get("webhookEvent", "")

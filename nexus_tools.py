@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
+from pathlib import Path
 
 from langchain_core.tools import tool
 from loguru import logger
@@ -329,17 +331,21 @@ Retourne un JSON avec :
 
 # ─── OUTIL 6 : Correction du bug ─────────────────────────────────────────────
 @tool
-def tool_fix_bug(file_to_fix: str, root_cause: str, fix_description: str) -> str:
+def tool_fix_bug(file_to_fix: str, root_cause: str, fix_description: str, dry_run: bool = True) -> str:
     """
     Implémente la correction du bug dans le fichier cible.
     N'appeler QU'APRÈS avoir une cause racine confirmée (runtime ou static).
     Le fix doit être minimal et chirurgical.
+
+    dry_run=True  (défaut) : analyse seulement, retourne code_before/code_after sans écrire
+    dry_run=False : écrit le fix dans le fichier avec backup .bak automatique
+
     Retourne : fix_applied, code_before, code_after, files_modified.
     """
+    file_path = Path(file_to_fix.strip())
     file_content = ""
     try:
-        with open(file_to_fix.strip()) as f:
-            file_content = f.read()
+        file_content = file_path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return json.dumps(
             {
@@ -380,6 +386,27 @@ Description du fix : {fix_description}
 Contenu actuel du fichier :
 {file_content[:3000]}""",
     )
+
+    # Écriture réelle du fix si dry_run=False
+    if not dry_run and result.get("status") == "success" and result.get("code_after"):
+        backup_path = file_path.with_suffix(file_path.suffix + ".bak")
+        try:
+            # Backup du fichier original
+            shutil.copy2(str(file_path), str(backup_path))
+            # Écriture du code corrigé
+            file_path.write_text(result["code_after"], encoding="utf-8")
+            result["backup_created"] = str(backup_path)
+            result["fix_applied"] = True
+            logger.info("Fix écrit dans {} (backup: {})", file_path, backup_path)
+        except Exception as exc:
+            logger.warning("Échec écriture du fix: {}", exc)
+            result["fix_applied"] = False
+            result["write_error"] = str(exc)
+    else:
+        result["dry_run"] = dry_run
+        if dry_run:
+            result["note"] = "Mode analyse seule. Passe dry_run=False pour appliquer le fix."
+
     return json.dumps(result)
 
 

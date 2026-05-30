@@ -17,7 +17,7 @@ from loguru import logger
 # Chemins
 FEEDBACK_PATH = Path(os.getenv("NEXUS_FEEDBACK_PATH", os.path.expanduser("~/nexus_feedback.yaml")))
 KB_PATH = Path(os.getenv("NEXUS_KB_PATH", os.path.expanduser("~/nexus_kb.yaml")))
-SKILL_DIR = Path(os.path.expanduser("~/.hermes/skills/agency/nexus-debug"))
+SKILL_DIR = Path(os.getenv("NEXUS_SKILL_DIR", os.path.expanduser("~/.hermes/skills/agency/nexus-debug")))
 SKILL_FILE = SKILL_DIR / "SKILL.md"
 REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", os.path.expanduser("~/nexus-reports")))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)

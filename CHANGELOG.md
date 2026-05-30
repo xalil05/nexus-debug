@@ -3,6 +3,9 @@
 ## 2.2.1 (2026-05-30) — Bugfix : KB cache, dead code, fragilités 🐛
 
 ### 🐛 Bugs corrigés
+- **tool_fix_bug ne fixait PAS** — ajout de l'écriture réelle du fichier avec backup `.bak`. Paramètre `dry_run=True` (défaut) conserve le comportement analyse. `dry_run=False` écrit le fix sur le disque.
+- **Versions désynchronisées** — centralisées via `importlib.metadata.version()` : pyproject.toml = source unique de vérité (v2.2.1)
+- **__init__.py** — package maintenant pip-installable proprement
 - **Dead code** dans `run_debug_task()` (nexus_api.py:266-270) — dict flottant inutile supprimé
 - **KB cache mort** dans `orchestrer_nexus()` (nexus_orchestrator.py:77) — utilisait `.get("confidence", 0)` qui retournait toujours 0. Corrigé : utilisation du `score` de `kb_search()` (seuil ≥ 3)
 

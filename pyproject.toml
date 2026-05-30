@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-debug"
-version = "2.1.0"
+version = "2.2.1"
 description = "🧬 Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)"
 readme = "README.md"
 license = {text = "MIT"}
@@ -55,7 +55,7 @@ test = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["nexus_*", "orchestrateur_integration"]
+include = ["nexus_*", "nexus_debug", "orchestrateur_integration"]
 exclude = ["tests*", ".venv*"]
 
 [tool.ruff]

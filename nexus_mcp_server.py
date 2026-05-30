@@ -10,6 +10,7 @@ import json
 import os
 import shlex
 import subprocess
+from pathlib import Path
 
 from loguru import logger
 from mcp.server import FastMCP
@@ -180,17 +181,37 @@ def kb_store_tool(
     )
 
 
-# ─── OUTIL 7 : sentry_event (placeholder) ──────────────────────────────────────
+# ─── OUTIL 7 : Analyse de logs ──────────────────────────────────────
 @mcp.tool()
-def get_sentry_event(event_id: str) -> str:
-    """Placeholder pour récupérer un événement Sentry. Configure SENTRY_DSN."""
-    return json.dumps(
-        {
-            "status": "info",
-            "message": "Sentry non configuré. Définir SENTRY_DSN pour activer.",
-            "event_id": event_id,
-        }
-    )
+def analyze_logs(log_path: str, pattern: str = "", max_lines: int = 50) -> str:
+    """Analyse un fichier de log : affiche les dernières lignes, filtre par pattern si fourni."""
+    log_file = Path(log_path)
+    if not log_file.exists():
+        return json.dumps({"status": "error", "error": f"Fichier non trouvé: {log_path}"})
+
+    try:
+        lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        if pattern:
+            matched = [l for l in lines if pattern.lower() in l.lower()]
+            result = matched[-max_lines:]
+            return json.dumps({
+                "status": "success",
+                "file": log_path,
+                "pattern": pattern,
+                "total_lines": len(lines),
+                "matched_lines": len(matched),
+                "lines": result,
+            })
+        else:
+            result = lines[-max_lines:]
+            return json.dumps({
+                "status": "success",
+                "file": log_path,
+                "total_lines": len(lines),
+                "lines": result,
+            })
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
 
 
 if __name__ == "__main__":
