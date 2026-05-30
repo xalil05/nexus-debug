@@ -1,52 +1,6 @@
 # Schéma Conceptuel — nexus-debug
 
-## L'Ancien : Pipeline (Ahmada)
-
-```
-Bug signalé
-    │
-    ▼
-┌─────────────────────┐
-│     TRIAGE          │  ← toujours en premier
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│  STATIC ANALYSIS    │  ← toujours en deuxième
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│     SECURITY        │  ← toujours appelé
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│    RUNTIME DEBUG    │  ← toujours appelé
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│       PERF          │  ← toujours appelé
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│   FIX BUG           │  ← correction
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│   QA / TESTS        │  ← vérification
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐
-│   POSTMORTEM        │  ← documentation
-└─────────┬───────────┘
-          ▼
-     Rapport final
-
-→ Ordre fixe : toujours les 8 étapes
-→ Impossible de sauter une étape
-→ Impossible de revenir en arrière
-→ Pas de décision : tout est exécuté
-```
-
-## Le Nouveau : Agentique ReAct (nexus-debug)
+## Architecture Agentique ReAct
 
 ```
 Bug signalé
@@ -88,6 +42,7 @@ Bug signalé
 │ nexus-  │  │ nexus-  │
 │   qa    │  │postmortem│
 └─────────┘  └─────────┘
+```
 
 ### Exemple : Bug simple (syntaxe Python)
 
@@ -116,15 +71,3 @@ nexus-debug appelle nexus-qa
     → validation
 nexus-debug appelle nexus-postmortem
     → mémorisation
-
-### Comparaison
-
-| Critère | Pipeline (ancien) | Agentique (nexus-debug) |
-|---|---|---|
-| Ordre | Fixe, toujours le même | Dynamique, décidé par le cerveau |
-| Boucle | Non | Oui (Thought → Action → Observation) |
-| Retour arrière | Impossible | Possible |
-| Appels redondants | Oui (tous les agents) | Non (seulement ceux nécessaires) |
-| Efficacité | 8 appels quoi qu'il arrive | 2 à 8 appels selon le bug |
-| Complexité | Simple mais rigide | Flexible mais plus complexe |
-| Scalabilité | Limitée | Extensible (nouveaux outils ajoutables) |
