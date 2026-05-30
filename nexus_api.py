@@ -33,7 +33,7 @@ from slowapi.errors import RateLimitExceeded
 from prometheus_client import Counter, Histogram, generate_latest, REGISTRY, CONTENT_TYPE_LATEST
 
 from nexus_agent import nexus_run
-from nexus_kb import kb_store, kb_search, kb_stats
+from nexus_kb import kb_store, kb_search, kb_stats, KB_VERSION
 
 
 # ── DeepSeek healthcheck ──────────────────────────────
@@ -318,6 +318,19 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Startup and shutdown handled via lifespan context."""
+    # Validation au démarrage
+    if not DEEPSEEK_API_KEY:
+        logger.warning("🚨 DEEPSEEK_API_KEY non définie — l'API DeepSeek est INACCESSIBLE")
+        logger.warning("   → Définir dans .env : DEEPSEEK_API_KEY=sk-votre_clé")
+        logger.warning("   → Les appels agents échoueront avec 'Missing credentials'")
+    else:
+        logger.info("✅ DEEPSEEK_API_KEY détectée")
+
+    if not GITHUB_SECRET and not GITHUB_TOKEN:
+        logger.info("ℹ️  Webhooks GitHub non configurés (GITHUB_SECRET/GITHUB_TOKEN)")
+    if not SLACK_WEBHOOK_URL:
+        logger.info("ℹ️  Notifications Slack non configurées (SLACK_WEBHOOK_URL)")
+
     await db.connect()
     logger.info("Nexus-debug API v2.1 démarrée sur {}:{}", API_HOST, API_PORT)
     yield
@@ -345,6 +358,22 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# ── Tags OpenAPI ──────────────────────────────────────
+TAG_SYSTEM = "⚙️ Système"
+TAG_DEBUG = "🧬 Debug"
+TAG_KB = "📚 Base de connaissance"
+TAG_WEBHOOK = "🔗 Webhooks"
+
+for tag, desc in [
+    (TAG_SYSTEM, "Healthcheck, métriques, statut du service"),
+    (TAG_DEBUG, "Soumettre et suivre des missions de débogage"),
+    (TAG_KB, "Rechercher et consulter la base de connaissance"),
+    (TAG_WEBHOOK, "Recevoir des bugs depuis GitHub et Jira"),
+]:
+    current_tags = app.openapi_tags or []
+    if not any(t.get("name") == tag for t in current_tags):
+        app.openapi_tags = current_tags + [{"name": tag, "description": desc}]
+
 # ── Prometheus metrics ───────────────────────────────
 METRIC_HTTP_REQUESTS = Counter(
     "nexus_http_requests_total",
@@ -370,7 +399,7 @@ METRIC_KB_ENTRIES = Counter(
 )
 
 
-@app.get("/metrics")
+@app.get("/metrics", tags=[TAG_SYSTEM], summary="Métriques Prometheus")
 async def metrics() -> PlainTextResponse:
     """Expose les métriques Prometheus pour le monitoring."""
     return PlainTextResponse(
@@ -379,7 +408,7 @@ async def metrics() -> PlainTextResponse:
     )
 
 
-@app.get("/health")
+@app.get("/health", tags=[TAG_SYSTEM], summary="Healthcheck complet avec DeepSeek et DB")
 async def health() -> dict[str, Any]:
     deepseek = await check_deepseek_health()
     return {
@@ -396,7 +425,7 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.post("/debug", status_code=202, dependencies=[Depends(verify_api_key)])
+@app.post("/debug", status_code=202, dependencies=[Depends(verify_api_key)], tags=[TAG_DEBUG], summary="Soumettre un bug à l'agent Nexus")
 @limiter.limit(RATE_LIMIT)
 async def debug(
     req: DebugRequest,
@@ -436,7 +465,7 @@ async def debug(
     return {"task_id": task_id, "status": "en_attente"}
 
 
-@app.get("/status/{task_id}")
+@app.get("/status/{task_id}", tags=[TAG_DEBUG], summary="Statut d'une mission de débogage")
 async def get_status(task_id: str) -> dict[str, Any]:
     task = await db.get_task(task_id)
     if not task:
@@ -444,7 +473,7 @@ async def get_status(task_id: str) -> dict[str, Any]:
     return {"task_id": task_id, "status": task["status"]}
 
 
-@app.get("/report/{task_id}")
+@app.get("/report/{task_id}", tags=[TAG_DEBUG], summary="Rapport complet d'une mission")
 async def get_report(task_id: str) -> dict[str, Any]:
     task = await db.get_task(task_id)
     if not task:
@@ -452,7 +481,7 @@ async def get_report(task_id: str) -> dict[str, Any]:
     return task
 
 
-@app.get("/tasks")
+@app.get("/tasks", tags=[TAG_DEBUG], summary="Lister les missions récentes")
 async def list_tasks(limit: int = 20) -> dict[str, Any]:
     tasks = await db.list_tasks(limit=min(limit, 100))
     return {"tasks": tasks, "total": len(tasks)}
@@ -460,7 +489,7 @@ async def list_tasks(limit: int = 20) -> dict[str, Any]:
 
 # ── Feedback ──────────────────────────────────────────────────────────────────
 
-@app.post("/feedback", dependencies=[Depends(verify_api_key)])
+@app.post("/feedback", dependencies=[Depends(verify_api_key)], tags=[TAG_DEBUG], summary="Noter la qualité d'une mission")
 async def feedback(req: FeedbackRequest) -> dict[str, str]:
     feedbacks: list[dict[str, Any]] = []
     if FEEDBACK_PATH.exists():
@@ -481,21 +510,21 @@ async def feedback(req: FeedbackRequest) -> dict[str, str]:
 
 # ── KB ────────────────────────────────────────────────────────────────────────
 
-@app.get("/kb/search")
+@app.get("/kb/search", tags=[TAG_KB], summary="Rechercher dans la base de connaissance")
 async def kb_search_endpoint(q: str = "") -> dict[str, Any]:
     if not q:
         return kb_stats()
     return kb_search(q)
 
 
-@app.get("/kb/stats")
+@app.get("/kb/stats", tags=[TAG_KB], summary="Statistiques de la base de connaissance")
 async def kb_stats_endpoint() -> dict[str, Any]:
     return kb_stats()
 
 
 # ── Webhook GitHub ────────────────────────────────────────────────────────────
 
-@app.post("/webhook/github")
+@app.post("/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)")
 async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
 
@@ -546,7 +575,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
 # ── Webhook Jira ──────────────────────────────────────────────────────────────
 
-@app.post("/webhook/jira")
+@app.post("/webhook/jira", tags=[TAG_WEBHOOK], summary="Webhook entrant Jira (issuetype: Bug)")
 async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.json()
     event_type = body.get("webhookEvent", "")
