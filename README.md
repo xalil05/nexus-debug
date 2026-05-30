@@ -17,7 +17,6 @@
 8. [Outils MCP](#8-outils-mcp)
 9. [Tests](#9-tests)
 10. [Amélioration continue](#10-amélioration-continue)
-11. [Nexus vs Ahmada](#11-nexus-vs-ahmada)
 12. [Dépannage](#12-dépannage)
 
 ---
@@ -468,28 +467,6 @@ Le script détecte automatiquement :
 
 ---
 
-## 11. Nexus vs Ahmada
-
-### Quand utiliser Nexus ?
-
-| Situation | Nexus | Ahmada |
-|---|---|---|
-| Bug simple (syntaxe, import) | ✅ 3 appels max | ✅ Procédure complète |
-| Bug complexe (race condition, perf) | ✅ Raisonnement libre | ❌ Pipeline trop rigide |
-| Bug ambigu, mal décrit | ✅ Creuse, explore | ❌ Bloqué sans info |
-| Bug critique de sécurité | ⚠️ Pas de QA step | ✅ Étape sécurité dédiée |
-| Bug connu (déjà résolu) | ✅ Cache KB direct | ❌ Refait toute la chaîne |
-| Tâche répétitive | ⚠️ Peut varier | ✅ Reproductible |
-| Procédure réglementaire | ❌ Risque d'écart | ✅ Procédure stricte |
-
-### Recommandation
-
-```
-Bug simple + procédure connue           → Ahmada
-Bug complexe + besoin de raisonnement   → Nexus
-Bug jamais vu + ambigu                  → Nexus
-Bug critique de sécurité                → Ahmada (ou les deux)
-Bug déjà dans la KB                     → Nexus (cache)
 ```
 
 ---

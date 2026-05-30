@@ -188,7 +188,7 @@ pytest >= 7.0              ← Tests
 | Service | Port | Description |
 |---|---|---|
 | API REST Nexus | **9001** | Endpoints debug, KB, webhooks |
-| API Ahmada (existant) | 9000 | Ne pas confondre |
+
 | Hermes Workspace | 5151 | Hermes Gateway |
 | Hermes Dashboard | 9119 | Dashboard Hermes |
 
