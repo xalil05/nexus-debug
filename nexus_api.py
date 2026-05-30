@@ -24,12 +24,13 @@ import httpx
 import yaml
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_client import Counter, Histogram, generate_latest, REGISTRY, CONTENT_TYPE_LATEST
 
 from nexus_agent import nexus_run
 from nexus_kb import kb_store, kb_search, kb_stats
@@ -318,6 +319,39 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# ── Prometheus metrics ───────────────────────────────
+METRIC_HTTP_REQUESTS = Counter(
+    "nexus_http_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status"],
+)
+METRIC_TASKS_TOTAL = Counter(
+    "nexus_tasks_total",
+    "Total debug tasks submitted",
+)
+METRIC_TASKS_FIXED = Counter(
+    "nexus_tasks_fixed_total",
+    "Total bugs successfully fixed",
+)
+METRIC_TASKS_DURATION = Histogram(
+    "nexus_task_duration_seconds",
+    "Duration of debug tasks in seconds",
+    buckets=[5, 15, 30, 60, 120, 300, 600],
+)
+METRIC_KB_ENTRIES = Counter(
+    "nexus_kb_entries_total",
+    "Total knowledge base entries stored",
+)
+
+
+@app.get("/metrics")
+async def metrics() -> PlainTextResponse:
+    """Expose les métriques Prometheus pour le monitoring."""
+    return PlainTextResponse(
+        generate_latest(REGISTRY),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
@@ -329,6 +363,7 @@ async def health() -> dict[str, Any]:
         "github_webhook": bool(GITHUB_SECRET),
         "slack_webhook": bool(SLACK_WEBHOOK_URL),
         "api_key_configured": bool(API_KEY),
+        "metrics_enabled": True,
         "timestamp": datetime.utcnow().isoformat(),
     }
 

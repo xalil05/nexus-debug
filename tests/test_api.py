@@ -32,8 +32,22 @@ async def test_health_structure() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
         data = resp.json()
-        required_keys = {"status", "version", "service", "db_connected", "api_key_configured", "timestamp"}
+        required_keys = {"status", "version", "service", "db_connected", "api_key_configured", "timestamp", "metrics_enabled"}
         assert required_keys.issubset(data.keys()), f"Missing keys: {required_keys - data.keys()}"
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint() -> None:
+    """GET /metrics doit retourner des métriques Prometheus."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/metrics")
+        assert resp.status_code == 200
+        assert "text/plain" in resp.headers["content-type"]
+        body = resp.text
+        assert "# HELP" in body
+        assert "# TYPE" in body
+        assert "nexus_" in body
 
 
 @pytest.mark.asyncio
