@@ -38,6 +38,16 @@ make run
 | 🐳 Docker build CI | `make docker-build` |
 | 🔐 API Key auth | Configurable via `.env` |
 | 📊 logs structurés | loguru avec rotation
+|
+| ## 📊 Monitoring
+
+| Service | URL | Accès |
+|---|---|---|
+| 🔵 Nexus API | `http://localhost:9001` | API REST |
+| 📈 Prometheus | `http://localhost:9090` | Métriques brutes |
+| 📉 Grafana | `http://localhost:3000` | `admin / nexus2026` |
+
+> Le dashboard Grafana est **pré‑configuré et auto‑provisionné**. Lance `docker compose up -d` et ton tableau de bord est prêt à l'emploi — 10 panneaux : requêtes, tâches, durées, heatmap, KB.
 
 ## 📚 Resources
 

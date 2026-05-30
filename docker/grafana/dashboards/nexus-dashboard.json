@@ -1,0 +1,178 @@
+{
+  "title": "Nexus-Debug — Monitoring",
+  "uid": "nexus-debug-main",
+  "version": 1,
+  "schemaVersion": 38,
+  "tags": ["nexus", "debug", "agent"],
+  "timezone": "utc",
+  "editable": false,
+  "refresh": "auto",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requêtes HTTP / sec",
+      "type": "graph",
+      "gridPos": {"x": 0, "y": 0, "w": 8, "h": 7},
+      "targets": [
+        {
+          "expr": "rate(nexus_http_requests_total[1m])",
+          "legendFormat": "total",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Débit de requêtes HTTP entrantes",
+      "tooltip": {"shared": true, "sort": 0, "value_type": "individual"}
+    },
+    {
+      "id": 2,
+      "title": "Requêtes par endpoint",
+      "type": "graph",
+      "gridPos": {"x": 8, "y": 0, "w": 8, "h": 7},
+      "targets": [
+        {
+          "expr": "sum by(endpoint) (rate(nexus_http_requests_total[5m]))",
+          "legendFormat": "{{endpoint}}",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Répartition par endpoint API",
+      "tooltip": {"shared": true, "sort": 0, "value_type": "individual"}
+    },
+    {
+      "id": 3,
+      "title": "Requêtes par statut HTTP",
+      "type": "graph",
+      "gridPos": {"x": 16, "y": 0, "w": 8, "h": 7},
+      "targets": [
+        {
+          "expr": "sum by(status) (rate(nexus_http_requests_total[5m]))",
+          "legendFormat": "{{status}}",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Répartition 2xx / 4xx / 5xx",
+      "tooltip": {"shared": true, "sort": 0, "value_type": "individual"}
+    },
+    {
+      "id": 4,
+      "title": "Tâches de debug soumises",
+      "type": "singlestat",
+      "gridPos": {"x": 0, "y": 7, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "nexus_tasks_total",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Nombre total de sessions de debug lancées",
+      "format": "none",
+      "sparkline": {"show": true, "full": false}
+    },
+    {
+      "id": 5,
+      "title": "Bugs corrigés",
+      "type": "singlestat",
+      "gridPos": {"x": 4, "y": 7, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "nexus_tasks_fixed_total",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Correctifs appliqués avec succès",
+      "format": "none",
+      "sparkline": {"show": true, "full": false}
+    },
+    {
+      "id": 6,
+      "title": "Entrées KB stockées",
+      "type": "singlestat",
+      "gridPos": {"x": 8, "y": 7, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "nexus_kb_entries_total",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Connaissances engrangées dans la base",
+      "format": "none",
+      "sparkline": {"show": true, "full": false}
+    },
+    {
+      "id": 7,
+      "title": "Taux de correction",
+      "type": "singlestat",
+      "gridPos": {"x": 12, "y": 7, "w": 4, "h": 4},
+      "targets": [
+        {
+          "expr": "clamp_min(nexus_tasks_fixed_total / (nexus_tasks_total > 0 or 1) * 100, 0)",
+          "legendFormat": ""
+        }
+      ],
+      "description": "Ratio bugs corrigés / bugs soumis",
+      "format": "percent",
+      "sparkline": {"show": true, "full": false},
+      "colorBackground": false,
+      "colorValue": true,
+      "thresholds": "50,80"
+    },
+    {
+      "id": 8,
+      "title": "Durée des sessions de debug (p50, p90, p99)",
+      "type": "graph",
+      "gridPos": {"x": 16, "y": 7, "w": 8, "h": 7},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(nexus_task_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "intervalFactor": 2
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(nexus_task_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p90",
+          "intervalFactor": 2
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(nexus_task_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Latence des sessions (p50/p90/p99)",
+      "tooltip": {"shared": true, "sort": 0, "value_type": "individual"},
+      "yaxes": [{"format": "s", "label": "Durée"}, {"format": "short"}]
+    },
+    {
+      "id": 9,
+      "title": "Distribution des durées de debug",
+      "type": "heatmap",
+      "gridPos": {"x": 0, "y": 11, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(nexus_task_duration_seconds_bucket[5m])) by (le)",
+          "legendFormat": "≤ {{le}}s",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Carte de chaleur des durées d'exécution",
+      "dataFormat": "tsbuckets",
+      "reverseYBuckets": false,
+      "yBucketBound": "auto"
+    },
+    {
+      "id": 10,
+      "title": "Requêtes HTTP (cumul)",
+      "type": "graph",
+      "gridPos": {"x": 12, "y": 11, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "nexus_http_requests_total",
+          "legendFormat": "total",
+          "intervalFactor": 2
+        }
+      ],
+      "description": "Volume cumulé de requêtes",
+      "tooltip": {"shared": true, "sort": 0, "value_type": "individual"}
+    }
+  ]
+}

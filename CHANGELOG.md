@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 (2026-05-30) — Monitoring Stack 📊
+
+### 📈 Monitoring
+- Prometheus service avec scrape config (scrape nexus:9001/metrics toutes les 10s)
+- Grafana service (auto-provisioning dashboard + datasource)
+- Dashboard 10 panneaux : requêtes HTTP (rate, endpoint, status), tâches, durée p50/p90/p99, heatmap, KB
+- Accès : Grafana http://localhost:3000 — `admin / nexus2026`
+- Rétention Prometheus : 30 jours
+
+### 📖 Documentation
+- Badge CI workflow dans README
+- Section Monitoring dans README (tableau des services)
+- Architecture projet : docker/prometheus/ + docker/grafana/
+
 ## 2.1.0 (2026-05-27) — Refonte Pro
 
 ### 🐳 Infra
