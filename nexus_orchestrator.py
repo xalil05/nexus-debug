@@ -16,10 +16,15 @@ from pathlib import Path
 from loguru import logger
 
 NEXUS_SKILLS_DIR = os.path.expanduser("~/.hermes/skills/agency")
-REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", os.path.expanduser("~/nexus-reports")))
+REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", "/data/nexus/reports"))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_RETRIES = 3
+
+def sanitize_brief(text: str, max_len: int = 4000) -> str:
+    """Sanitization LÉGÈRE — bornes + null byte, sans casser les bugs réels."""
+    text = text[:max_len]
+    return text.replace("\u0000", "")
 
 
 def run_hermes_skill(skill_name: str, input_text: str, timeout: int = 300) -> str:
@@ -96,7 +101,7 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
     # Étape 2 : Lancement de l'agent Nexus
     from nexus_agent import nexus_run
 
-    result = await nexus_run(brief, mission_id=mission_id)
+    result = await nexus_run(sanitize_brief(brief), mission_id=mission_id)
 
     # Étape 3 : Stockage dans KB si fix réussi
     if result.get("status") in ("fixed", "done"):

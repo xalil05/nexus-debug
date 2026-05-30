@@ -73,12 +73,13 @@ except importlib.metadata.PackageNotFoundError:
 API_PORT = int(os.getenv("NEXUS_API_PORT", "9001"))
 API_HOST = os.getenv("NEXUS_API_HOST", "0.0.0.0")
 API_KEY = os.getenv("NEXUS_API_KEY", "")
+CORS_ORIGIN = os.getenv("NEXUS_CORS_ORIGIN", "http://localhost:9001")
 GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
-DB_PATH = Path(os.getenv("NEXUS_DB_PATH", os.path.expanduser("~/nexus.db")))
-REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", os.path.expanduser("~/nexus-reports")))
-FEEDBACK_PATH = Path(os.getenv("NEXUS_FEEDBACK_PATH", os.path.expanduser("~/nexus_feedback.yaml")))
+DB_PATH = Path(os.getenv("NEXUS_DB_PATH", "/data/nexus/nexus.db"))
+REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", "/data/nexus/reports"))
+FEEDBACK_PATH = Path(os.getenv("NEXUS_FEEDBACK_PATH", "/data/nexus/feedback/nexus_feedback.yaml"))
 MAX_BRIEF_LENGTH = int(os.getenv("NEXUS_MAX_BRIEF_LENGTH", "5000"))
 RATE_LIMIT = os.getenv("NEXUS_RATE_LIMIT", "10/minute")
 
@@ -171,6 +172,18 @@ db = Database(DB_PATH)
 
 
 # ── Dépendences ───────────────────────────────────────────────────────────────
+
+def sanitize_brief_text(text: str, max_len: int = 2000) -> str:
+    """Sanitization LÉGÈRE du brief : bornes + neutralisation minimale.
+    N'enlève PAS les blocs ```, system:, tool_ (nécessaires aux bugs réels).
+    """
+    # 1) Limiter la taille
+    text = text[:max_len]
+    # 2) Neutraliser les tentatives de redéfinition du rôle
+    #    On prévient dans le system prompt (voir nexus_agent.py),
+    #    ici on ne fait qu'une protection basique contre les patterns évidents
+    text = text.replace("\u0000", "")  # null byte
+    return text
 
 
 async def verify_api_key(request: Request) -> None:
@@ -342,6 +355,12 @@ async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning("🚨 DEEPSEEK_API_KEY non définie — l'API DeepSeek est INACCESSIBLE")
         logger.warning("   → Définir dans .env : DEEPSEEK_API_KEY=sk-votre_clé")
         logger.warning("   → Les appels agents échoueront avec 'Missing credentials'")
+
+    if not API_KEY:
+        logger.error("🚨 NEXUS_API_KEY non définie — l'API REFUSE de démarrer sans clé")
+        logger.error("   → Définir NEXUS_API_KEY dans .env ou l'environnement")
+        msg = "NEXUS_API_KEY est obligatoire — ajoutez-la dans .env"
+        raise RuntimeError(msg)
     else:
         logger.info("✅ DEEPSEEK_API_KEY détectée")
 
@@ -371,7 +390,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("NEXUS_CORS_ORIGIN", "*")],
+    allow_origins=[CORS_ORIGIN],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
@@ -473,7 +492,7 @@ async def debug(
         brief_parts.append(f"STACK : {req.stack}")
     brief_parts.append(f"PRIORITÉ : {req.priority}")
     brief_parts.append(f"\nDESCRIPTION :\n{req.description}")
-    brief = "\n".join(brief_parts)
+    brief = sanitize_brief_text("\n".join(brief_parts))
 
     await db.save_task(
         task_id,
@@ -489,7 +508,8 @@ async def debug(
     )
 
     background_tasks.add_task(run_debug_task, task_id, brief, req)
-    logger.info("Bug soumis : {} ({})", task_id, req.description[:60])
+    redacted = req.description[:60].replace("sk-", "sk-***").replace("ghp_", "ghp_***")
+    logger.info("Bug soumis : {} ({})", task_id, redacted)
     return {"task_id": task_id, "status": "en_attente"}
 
 

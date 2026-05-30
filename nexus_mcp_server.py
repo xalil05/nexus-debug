@@ -50,14 +50,24 @@ async def async_run_mcp_subprocess(
 
 mcp = FastMCP("nexus-debug")
 
-CODEBASE_PATH = os.getenv("NEXUS_CODEBASE_PATH", os.path.expanduser("~/"))
+CODEBASE_PATH = os.getenv("NEXUS_CODEBASE_PATH", "/app/workspace")
+LOGS_ROOT = os.getenv("NEXUS_LOGS_ROOT", "/app/logs")
+ALLOWED_DIAGNOSTICS = {"pytest", "bandit", "mypy", "ruff", "semgrep"}
+
+def _safe_resolve(path: str, root: str = CODEBASE_PATH) -> str:
+    """Vérifie qu'un chemin résolu est bien contenu dans le root autorisé."""
+    resolved = os.path.realpath(os.path.join(root, path))
+    root_real = os.path.realpath(root)
+    if not resolved.startswith(root_real):
+        raise ValueError(f"Chemin interdit: {path} (hors de {root})")
+    return resolved
 
 
 # ─── OUTIL 1 : search_code ────────────────────────────────────────────────────
 @mcp.tool()
 async def search_code(query: str, path: str = "") -> str:
     """Recherche une chaîne ou regex dans le code source via ripgrep."""
-    search_path = os.path.join(CODEBASE_PATH, path) if path else CODEBASE_PATH
+    search_path = _safe_resolve(path) if path else CODEBASE_PATH
     cmd = ["rg", "-n", "--max-count", "20", query, search_path]
     try:
         r = await async_run_mcp_subprocess(cmd, timeout=30)
@@ -74,25 +84,18 @@ async def search_code(query: str, path: str = "") -> str:
 # ─── OUTIL 2 : sandbox_execute ────────────────────────────────────────────────
 @mcp.tool()
 async def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> str:
-    """Exécute du code court dans un environnement isolé."""
+    """Exécute du code Python court dans un environnement isolé (Python uniquement)."""
+    if language != "python":
+        return json.dumps({"status": "error", "error": "Seul le langage 'python' est autorisé pour la sécurité"})
+    # Bloque les imports système dangereux
+    dangerous = ["import os", "subprocess", "__import__", "open(", "exec(", "eval("]
+    if any(d in code for d in dangerous):
+        return json.dumps({"status": "error", "error": "Code contenant des opérations système interdites"})
     try:
-        if language == "python":
-            r = await async_run_mcp_subprocess(
-                ["python", "-c", code],
-                timeout=timeout,
-            )
-        elif language == "bash":
-            r = await async_run_mcp_subprocess(
-                ["bash", "-c", code],
-                timeout=timeout,
-            )
-        elif language in ("javascript", "js"):
-            r = await async_run_mcp_subprocess(
-                ["node", "-e", code],
-                timeout=timeout,
-            )
-        else:
-            return json.dumps({"status": "error", "error": f"Langage non supporté: {language}"})
+        r = await async_run_mcp_subprocess(
+            ["python", "-c", code],
+            timeout=timeout,
+        )
 
         logger.debug("sandbox_execute ({}) — exit {}", language, r.returncode)
         return json.dumps(
@@ -113,9 +116,12 @@ async def sandbox_execute(code: str, language: str = "python", timeout: int = 10
 # ─── OUTIL 3 : run_diagnostic ─────────────────────────────────────────────────
 @mcp.tool()
 async def run_diagnostic(command: str, workdir: str = "") -> str:
-    """Exécute une commande de diagnostic autorisée (pytest, bandit, etc.)."""
-    cwd = os.path.join(CODEBASE_PATH, workdir) if workdir else CODEBASE_PATH
+    """Exécute une commande de diagnostic autorisée (pytest, bandit, mypy, ruff, semgrep)."""
+    cmd_parts = shlex.split(command)
+    if not cmd_parts or cmd_parts[0] not in ALLOWED_DIAGNOSTICS:
+        return json.dumps({"status": "error", "error": f"Commande non autorisée: {cmd_parts[0] if cmd_parts else 'vide'}"})
     try:
+        cwd = _safe_resolve(workdir) if workdir else CODEBASE_PATH
         r = await async_run_mcp_subprocess(
             shlex.split(command),
             timeout=120,
@@ -139,7 +145,10 @@ async def run_diagnostic(command: str, workdir: str = "") -> str:
 @mcp.tool()
 async def git_blame(file: str, line: int = 0) -> str:
     """Retourne l'auteur et le commit de la dernière modification d'une ligne."""
-    filepath = os.path.join(CODEBASE_PATH, file)
+    try:
+        filepath = _safe_resolve(file)
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)})
     if not os.path.exists(filepath):
         return json.dumps({"status": "error", "error": f"Fichier non trouvé: {file}"})
 
@@ -184,8 +193,11 @@ def kb_store_tool(
 # ─── OUTIL 7 : Analyse de logs ──────────────────────────────────────
 @mcp.tool()
 def analyze_logs(log_path: str, pattern: str = "", max_lines: int = 50) -> str:
-    """Analyse un fichier de log : affiche les dernières lignes, filtre par pattern si fourni."""
-    log_file = Path(log_path)
+    """Analyse un fichier de log dans /app/logs : affiche les dernières lignes, filtre par pattern si fourni."""
+    try:
+        log_file = Path(_safe_resolve(log_path, root=LOGS_ROOT))
+    except ValueError as e:
+        return json.dumps({"status": "error", "error": str(e)})
     if not log_file.exists():
         return json.dumps({"status": "error", "error": f"Fichier non trouvé: {log_path}"})
 

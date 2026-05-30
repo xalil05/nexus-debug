@@ -5,10 +5,17 @@ orchestrateur_integration.py — Comment Orchestrateur appelle Nexus agentique
 from __future__ import annotations
 
 import asyncio
+import uuid
 
 from loguru import logger
 
 from nexus_agent import nexus_run
+
+
+def sanitize_brief(text: str, max_len: int = 4000) -> str:
+    """Sanitization LÉGÈRE — bornes + null byte, sans casser les bugs réels."""
+    text = text[:max_len]
+    return text.replace("\u0000", "")
 
 
 async def orchestrateur_delegate_to_nexus(
@@ -26,25 +33,26 @@ async def orchestrateur_delegate_to_nexus(
     """
     # Construction du brief structuré
     mission_brief = f"""
-PROJET   : {project or "Non précisé"}
-LANGAGE  : {langage or "À détecter"}
-FICHIER  : {fichier or "À identifier"}
-PRIORITÉ : {priority}
+PROJET   : {sanitize_brief(project or "Non précisé", 200)}
+LANGAGE  : {sanitize_brief(langage or "À détecter", 100)}
+FICHIER  : {sanitize_brief(fichier or "À identifier", 500)}
+PRIORITÉ : {sanitize_brief(priority, 10)}
 
 DESCRIPTION :
-{brief}
+{sanitize_brief(brief)}
 
 ERREUR EXACTE :
-{erreur or "Voir description"}
+{sanitize_brief(erreur or "Voir description")}
 
 STACK TRACE :
-{stack or "Non fournie"}
+{sanitize_brief(stack or "Non fournie")}
     """.strip()
 
     logger.info("Délégation à Nexus — priorité {}", priority)
 
     # Appel agentique — Nexus fait le reste
-    result = await nexus_run(brief=mission_brief, mission_id=f"DBG-{project[:4].upper() if project else 'AGNT'}-001")
+    mission_id = f"DBG-{project[:4].upper() if project else 'AGNT'}-{uuid.uuid4().hex[:8]}"
+    result = await nexus_run(brief=mission_brief, mission_id=mission_id)
 
     # Synthèse pour l'utilisateur
     status_emoji = {"fixed": "✅", "partial": "⚠️", "escalate": "🚨", "error": "❌"}.get(

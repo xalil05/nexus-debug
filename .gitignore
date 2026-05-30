@@ -29,7 +29,8 @@ Thumbs.db
 
 # Environment
 .env
-.env.*
+.env.local
+.env.production
 !env.example
 
 # Logs

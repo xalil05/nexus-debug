@@ -1,7 +1,12 @@
 # Nexus-Debug v2.2 — Documentation Complète 🧬
 
 > Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)
-> Version **2.2.0** — 30 Mai 2026
+> Version **2.2.1** — 30 Mai 2026
+
+> ⚠️ **SÉCURITÉ** : Ne jamais exposer Nexus-debug sans API_KEY configurée,
+> sans CORS restrictif, et sans user non-root dans le conteneur.
+> Les outils MCP (search_code, sandbox_execute, run_diagnostic) permettent
+> l'exécution de code — isoler le déploiement dans un conteneur dédié.
 
 ---
 
@@ -47,7 +52,7 @@ make run
 |---|---|---|
 | 🔵 Nexus API | `http://localhost:9001` | API REST |
 | 📈 Prometheus | `http://localhost:9090` | Métriques brutes |
-| 📉 Grafana | `http://localhost:3000` | `admin / nexus2026` |
+| 📉 Grafana | `http://localhost:3000` | `admin` (mdp dans `.env`) |
 
 > Le dashboard Grafana est **pré‑configuré et auto‑provisionné**. Lance `docker compose up -d` et ton tableau de bord est prêt à l'emploi — 10 panneaux : requêtes, tâches, durées, heatmap, KB.
 
@@ -267,8 +272,9 @@ python nexus_orchestrator.py "AttributeError sur user.id"
 cd ~/nexus-debug && source .venv/bin/activate
 python nexus_api.py &
 
-# Soumettre un bug
+# Soumettre un bug (avec API_KEY)
 curl -X POST http://localhost:9001/debug \
+  -H "Authorization: Bearer $NEXUS_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "description": "Erreur dans le module auth",
@@ -564,14 +570,11 @@ Le script détecte automatiquement :
 ### Logs
 
 ```bash
-# Logs de l'API
-tail -f ~/nexus-reports/nexus_api.log
+# Logs de l'API (dans le conteneur Docker, utiliser docker logs)
+docker logs nexus-debug --tail 50
 
 # Voir les tâches en cours
 curl http://localhost:9001/tasks
-
-# Vider la KB de test
-rm ~/nexus_kb.yaml
 ```
 
 ---

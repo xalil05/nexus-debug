@@ -29,6 +29,10 @@ RUN pip install --no-cache-dir -r requirements-frozen.txt
 # App
 COPY . .
 
+# Créer user non-root et ajuster les permissions
+RUN useradd -m nexus && chown -R nexus:nexus /app /data/nexus
+USER nexus
+
 # Volumes persistants
 VOLUME ["/data/nexus/kb", "/data/nexus/reports", "/data/nexus/feedback"]
 
