@@ -89,7 +89,7 @@ def analyze_kb() -> dict:
     patterns = kb.get("patterns", [])
 
     # Top catégories
-    categories = {}
+    categories: dict[str, int] = {}
     for bug in bugs:
         cat = bug.get("category", "other")
         categories[cat] = categories.get(cat, 0) + 1
@@ -97,7 +97,7 @@ def analyze_kb() -> dict:
     top_categories = sorted(categories.items(), key=lambda x: -x[1])[:5]
 
     # Langages les plus fréquents
-    langages = {}
+    langages: dict[str, int] = {}
     for bug in bugs:
         lang = bug.get("langage", "unknown")
         langages[lang] = langages.get(lang, 0) + 1
@@ -106,9 +106,7 @@ def analyze_kb() -> dict:
 
     suggestions = []
     if len(bugs) >= 10:
-        suggestions.append(
-            f"Base KB solide ({len(bugs)} bugs). Enrichir les patterns de prévention."
-        )
+        suggestions.append(f"Base KB solide ({len(bugs)} bugs). Enrichir les patterns de prévention.")
     if top_categories:
         suggestions.append(f"Top bugs: {', '.join(f'{c}({n})' for c, n in top_categories)}")
 

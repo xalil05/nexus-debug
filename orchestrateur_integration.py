@@ -41,13 +41,10 @@ STACK TRACE :
 {stack or "Non fournie"}
     """.strip()
 
-
     logger.info("Délégation à Nexus — priorité {}", priority)
 
     # Appel agentique — Nexus fait le reste
-    result = await nexus_run(
-        brief=mission_brief, mission_id=f"DBG-{project[:4].upper() if project else 'AGNT'}-001"
-    )
+    result = await nexus_run(brief=mission_brief, mission_id=f"DBG-{project[:4].upper() if project else 'AGNT'}-001")
 
     # Synthèse pour l'utilisateur
     status_emoji = {"fixed": "✅", "partial": "⚠️", "escalate": "🚨", "error": "❌"}.get(

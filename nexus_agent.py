@@ -89,19 +89,19 @@ if not DEEPSEEK_API_KEY:
     logger.warning("DEEPSEEK_API_KEY non définie — l'agent échouera au runtime")
 
 
-def _get_llm() -> ChatOpenAI:
+def _get_llm() -> Any:
     """Crée le LLM DeepSeek V4 Pro avec les outils liés."""
     return ChatOpenAI(
         model=NEXUS_MODEL,
-        api_key=DEEPSEEK_API_KEY or None,
+        api_key=DEEPSEEK_API_KEY or None,  # type: ignore[arg-type]
         base_url=DEEPSEEK_BASE_URL,
-        max_tokens=4096,
+        max_tokens=4096,  # type: ignore[call-arg]
         temperature=0.1,
     ).bind_tools(NEXUS_TOOLS)
 
 
 # ─── Construction de l'agent ──────────────────────────────────────────────────
-def build_nexus_agent(_memory_path: str | None = None) -> StateGraph:
+def build_nexus_agent(_memory_path: str | None = None) -> Any:
     """
     Construit l'agent agentique Nexus avec LangGraph.
     Utilise le pattern ReAct : Reason -> Act -> Observe -> Repeat.
@@ -147,7 +147,7 @@ def build_nexus_agent(_memory_path: str | None = None) -> StateGraph:
 
 
 # ─── Fonction d'entrée principale ────────────────────────────────────────────
-async def nexus_run(brief: str, mission_id: str = None) -> dict:
+async def nexus_run(brief: str, mission_id: str | None = None) -> dict:
     """
     Point d'entrée pour Orchestrateur.
     Lance Nexus sur un bug et retourne le résultat final.
@@ -206,6 +206,7 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
             last_content = last_msgs[-1].content
             if isinstance(last_content, str):
                 import re
+
                 # D'abord tenter extraction directe
                 start = last_content.find("{")
                 if start >= 0:

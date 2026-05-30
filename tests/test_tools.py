@@ -86,9 +86,7 @@ def test_tool_triage_p0_detected() -> None:
             }
         )
     )
-    assert result["priority"] in ("P0", "P1"), (
-        f"Devrait être haute priorité, got {result['priority']}"
-    )
+    assert result["priority"] in ("P0", "P1"), f"Devrait être haute priorité, got {result['priority']}"
 
 
 @pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")

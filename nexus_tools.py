@@ -90,7 +90,8 @@ Inclus toujours : status, summary, confidence (0.0-1.0), needs_more (bool), esca
         ],
     )
     try:
-        return json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content or ""
+        return json.loads(content)
     except (json.JSONDecodeError, AttributeError, TypeError, IndexError):
         logger.warning("Sub-agent {} returned unparseable response", skill_name)
         return {
@@ -163,9 +164,7 @@ async def tool_static_analysis(files: str, langage: str = "python") -> str:
                 ["python", "-m", "py_compile", filepath],
                 timeout=15,
             )
-            tool_output += (
-                f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
-            )
+            tool_output += f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
 
         elif langage in ["javascript", "typescript"]:
             r = await async_run_subprocess(
@@ -386,9 +385,7 @@ Contenu actuel du fichier :
 
 # ─── OUTIL 7 : Tests de non-régression ───────────────────────────────────────
 @tool
-def tool_generate_tests(
-    bug_summary: str, fix_description: str, module_path: str, langage: str = "python"
-) -> str:
+def tool_generate_tests(bug_summary: str, fix_description: str, module_path: str, langage: str = "python") -> str:
     """
     Génère les tests de non-régression pour le bug corrigé.
     Appeler APRÈS tool_fix_bug pour valider la correction.

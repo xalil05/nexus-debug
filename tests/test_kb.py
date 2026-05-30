@@ -55,9 +55,7 @@ def test_kb_stats_empty():
 def test_kb_multiple_entries():
     kb_store(bug_id="B1", category="null", summary="Null ref", root_cause="null", solution="fix")
     kb_store(bug_id="B2", category="type", summary="Type error", root_cause="type", solution="fix")
-    kb_store(
-        bug_id="B3", category="null", summary="Another null", root_cause="null", solution="fix"
-    )
+    kb_store(bug_id="B3", category="null", summary="Another null", root_cause="null", solution="fix")
 
     stats = kb_stats()
     assert stats["total_bugs"] == 3

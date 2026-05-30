@@ -16,6 +16,7 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -170,7 +171,7 @@ async def verify_api_key(request: Request) -> None:
     if not API_KEY:
         return
     auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {API_KEY}" and auth != API_KEY:
+    if auth not in (f"Bearer {API_KEY}", API_KEY):
         raise HTTPException(status_code=401, detail="Clé API invalide")
 
 
@@ -327,7 +328,7 @@ async def run_debug_task(
 
 
 @asynccontextmanager
-async def lifespan(_application: FastAPI):
+async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown handled via lifespan context."""
     # Validation au démarrage
     if not DEEPSEEK_API_KEY:
@@ -554,9 +555,7 @@ async def kb_stats_endpoint() -> dict[str, Any]:
 # ── Webhook GitHub ────────────────────────────────────────────────────────────
 
 
-@app.post(
-    "/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)"
-)
+@app.post("/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)")
 async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
 
