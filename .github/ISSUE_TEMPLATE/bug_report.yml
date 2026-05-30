@@ -1,0 +1,80 @@
+name: 🐛 Rapport de Bug
+description: Signaler un bug pour aider à améliorer Nexus-Debug
+title: "[BUG] "
+labels: ["bug"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler ce bug ! Remplis le formulaire ci-dessous.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description du bug
+      description: Décris clairement le problème.
+      placeholder: "Ex: L'API retourne une erreur 500 quand je soumets un bug avec un long stack trace."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: Comment reproduire le bug ?
+      placeholder: |
+        1. Lancer `docker compose up -d`
+        2. POST sur `/debug` avec...
+        3. Voir l'erreur...
+    validations:
+      required: true
+
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+      description: Que devrait-il se passer ?
+      placeholder: "L'API devrait retourner 202 et traiter le bug."
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Captures d'écran
+      description: Si applicable, ajoute des logs ou captures.
+      placeholder: "Coller les logs ici..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: Version
+      description: Quelle version de Nexus-Debug utilises-tu ?
+      options:
+        - Dernière (main)
+        - v2.1.0
+        - v2.0.0
+        - Autre
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Type d'installation
+      options:
+        - Docker
+        - Installation locale (pip)
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexte
+    attributes:
+      label: Contexte supplémentaire
+      description: Toute info utile (OS, Python version, etc.)
+    validations:
+      required: false

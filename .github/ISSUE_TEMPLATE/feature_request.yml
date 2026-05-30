@@ -1,0 +1,45 @@
+name: 💡 Demande de Fonctionnalité
+description: Suggérer une idée pour améliorer Nexus-Debug
+title: "[FEATURE] "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de partager ton idée ! Remplis le formulaire ci-dessous.
+
+  - type: textarea
+    id: probleme
+    attributes:
+      label: Problème résolu
+      description: Quel problème cette fonctionnalité résout-elle ?
+      placeholder: "Ex: Impossible de suivre l'avancement des tâches de debug en temps réel."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution souhaitée
+      description: Décris la fonctionnalité que tu aimerais voir.
+      placeholder: "Ex: Un endpoint WebSocket /ws/tasks qui envoie les mises à jour en direct."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+      description: As-tu envisagé d'autres solutions ?
+      placeholder: "Ex: Polling toutes les 5 secondes, mais WebSocket serait plus efficace."
+    validations:
+      required: false
+
+  - type: textarea
+    id: contexte
+    attributes:
+      label: Contexte supplémentaire
+      description: Toute info utile (cas d'usage, captures, etc.)
+    validations:
+      required: false
