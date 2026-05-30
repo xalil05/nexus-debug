@@ -97,11 +97,11 @@ def test_tool_fix_bug_file_not_found() -> None:
 
 
 @pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_static_analysis_valid_json() -> None:
+async def test_tool_static_analysis_valid_json() -> None:
     """Vérifie que tool_static_analysis retourne du JSON valide."""
     from nexus_tools import tool_static_analysis
 
-    result = json.loads(tool_static_analysis.invoke({
+    result = json.loads(await tool_static_analysis.ainvoke({
         "files": "/nonexistent/file.py",
         "langage": "python",
     }))
@@ -109,11 +109,11 @@ def test_tool_static_analysis_valid_json() -> None:
 
 
 @pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_runtime_debug_valid_json() -> None:
+async def test_tool_runtime_debug_valid_json() -> None:
     """Vérifie que tool_runtime_debug retourne du JSON valide."""
     from nexus_tools import tool_runtime_debug
 
-    result = json.loads(tool_runtime_debug.invoke({
+    result = json.loads(await tool_runtime_debug.ainvoke({
         "files": "/nonexistent/file.py",
         "error_message": "Test error",
     }))
@@ -122,11 +122,35 @@ def test_tool_runtime_debug_valid_json() -> None:
 
 
 @pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_generate_tests_valid_json() -> None:
+async def test_tool_security_scan_valid_json() -> None:
+    """Vérifie que tool_security_scan retourne du JSON valide."""
+    from nexus_tools import tool_security_scan
+
+    result = json.loads(await tool_security_scan.ainvoke({
+        "files": "/nonexistent/file.py",
+        "langage": "python",
+    }))
+    assert "status" in result
+
+
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
+async def test_tool_perf_analysis_valid_json() -> None:
+    """Vérifie que tool_perf_analysis retourne du JSON valide."""
+    from nexus_tools import tool_perf_analysis
+
+    result = json.loads(await tool_perf_analysis.ainvoke({
+        "files": "/nonexistent/file.py",
+        "symptom": "lent au démarrage",
+    }))
+    assert "status" in result
+
+
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
+async def test_tool_generate_tests_valid_json() -> None:
     """Vérifie que tool_generate_tests retourne du JSON valide."""
     from nexus_tools import tool_generate_tests
 
-    result = json.loads(tool_generate_tests.invoke({
+    result = json.loads(await tool_generate_tests.ainvoke({
         "bug_summary": "Test bug",
         "fix_description": "Test fix",
         "module_path": "src/test.py",
@@ -136,11 +160,11 @@ def test_tool_generate_tests_valid_json() -> None:
 
 
 @pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_write_postmortem_valid_json() -> None:
+async def test_tool_write_postmortem_valid_json() -> None:
     """Vérifie que tool_write_postmortem retourne du JSON valide."""
     from nexus_tools import tool_write_postmortem
 
-    result = json.loads(tool_write_postmortem.invoke({
+    result = json.loads(await tool_write_postmortem.ainvoke({
         "mission_id": "DBG-001",
         "bug_summary": "Test bug",
         "root_cause": "Null check manquant",
@@ -149,27 +173,3 @@ def test_tool_write_postmortem_valid_json() -> None:
     }))
     assert "status" in result
     assert "postmortem_text" in result or "summary" in result
-
-
-@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_security_scan_valid_json() -> None:
-    """Vérifie que tool_security_scan retourne du JSON valide."""
-    from nexus_tools import tool_security_scan
-
-    result = json.loads(tool_security_scan.invoke({
-        "files": "/nonexistent/file.py",
-        "langage": "python",
-    }))
-    assert "status" in result
-
-
-@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
-def test_tool_perf_analysis_valid_json() -> None:
-    """Vérifie que tool_perf_analysis retourne du JSON valide."""
-    from nexus_tools import tool_perf_analysis
-
-    result = json.loads(tool_perf_analysis.invoke({
-        "files": "/nonexistent/file.py",
-        "symptom": "lent au démarrage",
-    }))
-    assert "status" in result

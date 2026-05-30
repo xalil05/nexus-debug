@@ -6,6 +6,7 @@ Chaque tool = un sous-agent spécialisé qu'Nexus peut appeler librement.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -14,6 +15,35 @@ from typing import Any
 from langchain_core.tools import tool
 from loguru import logger
 from openai import OpenAI
+
+
+# ─── Async subprocess helper ──────────────────────────────────────────────────
+
+def _run_subprocess(
+    cmd: list[str],
+    timeout: int = 30,
+    cwd: str | None = None,
+    input_data: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Sync wrapper for asyncio.to_thread — non-bloquant dans une thread."""
+    return subprocess.run(
+        cmd,
+        capture_output=True, text=True,
+        timeout=timeout, cwd=cwd,
+        input=input_data,
+    )
+
+
+async def async_run_subprocess(
+    cmd: list[str],
+    timeout: int = 30,
+    cwd: str | None = None,
+    input_data: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Exécute un subprocess sans bloquer l'event loop."""
+    return await asyncio.to_thread(
+        _run_subprocess, cmd, timeout, cwd, input_data,
+    )
 
 # ─── Client DeepSeek (lazy init) ──────────────────────────────────────────────
 _client: OpenAI | None = None
@@ -103,7 +133,7 @@ Analyse le brief et retourne un JSON avec :
 
 # ─── OUTIL 2 : Analyse statique ──────────────────────────────────────────────
 @tool
-def tool_static_analysis(files: str, langage: str = "python") -> str:
+async def tool_static_analysis(files: str, langage: str = "python") -> str:
     """
     Analyse statique du code : linters, AST, patterns dangereux.
     Appeler avec les fichiers suspects identifiés par le triage.
@@ -114,23 +144,23 @@ def tool_static_analysis(files: str, langage: str = "python") -> str:
     for filepath in files.split(","):
         filepath = filepath.strip()
         if langage == "python":
-            r = subprocess.run(
+            r = await async_run_subprocess(
                 ["python", "-m", "pylint", filepath, "--errors-only",
                  "--output-format=text"],
-                capture_output=True, text=True, timeout=30,
+                timeout=30,
             )
             tool_output += f"\nPylint {filepath}:\n{r.stdout[:2000]}{r.stderr[:500]}"
 
-            r2 = subprocess.run(
+            r2 = await async_run_subprocess(
                 ["python", "-m", "py_compile", filepath],
-                capture_output=True, text=True, timeout=15,
+                timeout=15,
             )
             tool_output += f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
 
         elif langage in ["javascript", "typescript"]:
-            r = subprocess.run(
+            r = await async_run_subprocess(
                 ["node", "--check", filepath],
-                capture_output=True, text=True, timeout=15,
+                timeout=15,
             )
             tool_output += f"\nNode check {filepath}:\n{r.stderr[:500] or 'OK'}"
 
@@ -158,7 +188,7 @@ Voici les résultats des outils + contexte. Retourne un JSON avec :
 
 # ─── OUTIL 3 : Scan sécurité ─────────────────────────────────────────────────
 @tool
-def tool_security_scan(files: str, langage: str = "python") -> str:
+async def tool_security_scan(files: str, langage: str = "python") -> str:
     """
     Scan de sécurité : OWASP, injections, CVE dépendances, secrets hardcodés.
     Appeler si le triage indique needs_security=true ou si mots-clés sécurité présents.
@@ -168,9 +198,9 @@ def tool_security_scan(files: str, langage: str = "python") -> str:
     for filepath in files.split(","):
         filepath = filepath.strip()
         if langage == "python":
-            r = subprocess.run(
+            r = await async_run_subprocess(
                 ["python", "-m", "bandit", "-f", "txt", filepath],
-                capture_output=True, text=True
+                timeout=30,
             )
             tool_output += f"\nBandit {filepath}:\n{r.stdout[:1000]}"
 
@@ -198,7 +228,7 @@ IMPORTANT : si is_critical=true, mettre escalate=true et escalate_immediately=tr
 
 # ─── OUTIL 4 : Débogage dynamique ────────────────────────────────────────────
 @tool
-def tool_runtime_debug(
+async def tool_runtime_debug(
     files: str,
     error_message: str,
     stack_trace: str = ""
@@ -213,9 +243,9 @@ def tool_runtime_debug(
     for filepath in files.split(",")[:2]:
         filepath = filepath.strip()
         try:
-            r = subprocess.run(
+            r = await async_run_subprocess(
                 ["head", "-80", filepath],
-                capture_output=True, text=True
+                timeout=10,
             )
             file_contents += f"\n--- {filepath} ---\n{r.stdout}"
         except Exception:
@@ -252,7 +282,7 @@ Contenu des fichiers :
 
 # ─── OUTIL 5 : Analyse performance ───────────────────────────────────────────
 @tool
-def tool_perf_analysis(files: str, symptom: str) -> str:
+async def tool_perf_analysis(files: str, symptom: str) -> str:
     """
     Analyse performance et mémoire : bottlenecks CPU, fuites mémoire, N+1 queries.
     Appeler si le triage indique needs_perf=true ou si symptômes de lenteur présents.
@@ -262,9 +292,9 @@ def tool_perf_analysis(files: str, symptom: str) -> str:
     for filepath in files.split(",")[:2]:
         filepath = filepath.strip()
         try:
-            r = subprocess.run(
-                ["grep", "-n", r"for.*for\|\.query\|\.find\|\.get", filepath],
-                capture_output=True, text=True
+            r = await async_run_subprocess(
+                ["grep", "-n", r"for.*for\|\\.query\|\\.find\|\\.get", filepath],
+                timeout=10,
             )
             file_contents += f"\n--- Patterns suspects {filepath} ---\n{r.stdout[:500]}"
         except Exception:
