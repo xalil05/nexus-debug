@@ -26,7 +26,8 @@
 ```bash
 # Option 1 : Docker (recommandé)
 docker compose up -d
-curl http://localhost:9001/health
+curl https://localhost:9000/health  # via Caddy (HTTPS)
+# ou curl http://localhost:9001/health  # direct
 
 # Option 2 : Dev local
 pip install -e ".[dev]"
@@ -46,11 +47,11 @@ make run
 | 💾 backup/restore | `bash scripts/nexus-backup.sh`
 | 🚀 deploy | `bash scripts/deploy.sh`
 |
-| ## 📊 Monitoring
+| 📊 Monitoring
 
 | Service | URL | Accès |
 |---|---|---|
-| 🔵 Nexus API | `http://localhost:9001` | API REST |
+| 🔵 Nexus API | `https://localhost:9000` (HTTPS) ou `http://localhost:9001` | API REST |
 | 📈 Prometheus | `http://localhost:9090` | Métriques brutes |
 | 📉 Grafana | `http://localhost:3000` | `admin` (mdp dans `.env`) |
 

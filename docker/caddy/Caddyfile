@@ -1,0 +1,25 @@
+# =============================================================================
+# Nexus-Debug — Caddy reverse proxy (HTTPS auto TLS)
+# =============================================================================
+
+# Mode développement (localhost) : décommenter la ligne ci-dessous
+# :9000 {
+#     reverse_proxy nexus:9001
+# }
+
+# Mode production (domaine réel) : décommenter et remplacer
+# nexus.example.com {
+#     reverse_proxy nexus:9001
+#     tls ton@email.com
+# }
+
+# Mode par défaut : localhost avec HTTPS auto-signé
+https://localhost:9000 {
+    reverse_proxy nexus:9001
+    tls internal
+}
+
+# Redirection HTTP → HTTPS
+http://localhost:9000 {
+    redir https://localhost:9000{uri}
+}

@@ -7,8 +7,8 @@ services:
   nexus:
     build: .
     container_name: nexus-debug
-    ports:
-      - "9001:9001"
+    expose:
+      - "9001"
     volumes:
       - nexus_kb:/data/nexus/kb
       - nexus_reports:/data/nexus/reports
@@ -33,6 +33,21 @@ services:
         limits:
           cpus: "0.50"
           memory: "512M"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: nexus-caddy
+    ports:
+      - "9000:9000"
+      - "9000:9000/udp"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - nexus_caddy:/data
+    depends_on:
+      - nexus
+    restart: unless-stopped
+    networks:
+      - nexus_monitoring
 
   prometheus:
     image: prom/prometheus:v2.53.0
@@ -83,3 +98,4 @@ volumes:
   nexus_db:
   nexus_prometheus:
   nexus_grafana:
+  nexus_caddy:
