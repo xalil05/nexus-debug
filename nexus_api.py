@@ -613,7 +613,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
         owner, repo = repo_full.split("/") if "/" in repo_full else ("", "")
 
         req = DebugRequest(description=description, project=repo)
-        brief = f"PROJET : {repo}\nPRIORITÉ : P1\n\n{description}"
+        brief = sanitize_brief_text(f"PROJET : {repo}\nPRIORITÉ : P1\n\n{description}")
 
         await db.save_task(
             task_id,
@@ -662,8 +662,9 @@ async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> d
         description = fields.get("description", "") or ""
         project = fields.get("project", {}).get("key", "")
         full_desc = f"{title}\n\n{description}"
+        sanitized = sanitize_brief_text(full_desc)
         task_id = uuid.uuid4().hex[:8]
-        req = DebugRequest(description=full_desc, project=project)
+        req = DebugRequest(description=sanitized, project=project)
 
         await db.save_task(
             task_id,
@@ -671,14 +672,14 @@ async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> d
                 "task_id": task_id,
                 "status": "en_attente",
                 "priority": "P1",
-                "brief": full_desc,
+                "brief": sanitized,
                 "created_at": datetime.utcnow().isoformat(),
                 "completed_at": None,
                 "result": {},
             },
         )
 
-        background_tasks.add_task(run_debug_task, task_id, full_desc, req)
+        background_tasks.add_task(run_debug_task, task_id, sanitized, req)
         logger.info("Webhook Jira: bug {} → {}", title[:50], task_id)
         return {"task_id": task_id, "status": "en_attente"}
 
