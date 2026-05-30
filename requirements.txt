@@ -1,0 +1,22 @@
+# requirements.txt — Nexus Agentic System v2 (DeepSeek)
+langgraph>=0.2.0
+langchain-openai>=0.2.0
+langchain-core>=0.3.0
+openai>=1.0.0
+pydantic>=2.0.0
+
+# API REST
+fastapi>=0.100.0
+uvicorn>=0.20.0
+
+# Base de connaissance
+pyyaml>=6.0
+
+# Outils d'analyse statique
+pylint
+bandit
+
+# Tests
+pytest>=7.0
+pytest-asyncio>=0.21
+httpx>=0.24.0
