@@ -10,14 +10,13 @@ import asyncio
 import json
 import os
 import subprocess
-from typing import Any
 
 from langchain_core.tools import tool
 from loguru import logger
 from openai import OpenAI
 
-
 # ─── Async subprocess helper ──────────────────────────────────────────────────
+
 
 def _run_subprocess(
     cmd: list[str],
@@ -28,8 +27,10 @@ def _run_subprocess(
     """Sync wrapper for asyncio.to_thread — non-bloquant dans une thread."""
     return subprocess.run(
         cmd,
-        capture_output=True, text=True,
-        timeout=timeout, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
         input=input_data,
     )
 
@@ -42,8 +43,13 @@ async def async_run_subprocess(
 ) -> subprocess.CompletedProcess:
     """Exécute un subprocess sans bloquer l'event loop."""
     return await asyncio.to_thread(
-        _run_subprocess, cmd, timeout, cwd, input_data,
+        _run_subprocess,
+        cmd,
+        timeout,
+        cwd,
+        input_data,
     )
+
 
 # ─── Client DeepSeek (lazy init) ──────────────────────────────────────────────
 _client: OpenAI | None = None
@@ -73,12 +79,15 @@ def _call_subagent(skill_name: str, system_prompt: str, context: str) -> dict:
         max_tokens=2000,
         temperature=0.1,
         messages=[
-            {"role": "system", "content": f"""{system_prompt}
+            {
+                "role": "system",
+                "content": f"""{system_prompt}
 
 RÈGLE ABSOLUE : Réponds UNIQUEMENT en JSON valide, sans markdown, sans texte avant ou après.
-Inclus toujours : status, summary, confidence (0.0-1.0), needs_more (bool), escalate (bool)."""},
-            {"role": "user", "content": context}
-        ]
+Inclus toujours : status, summary, confidence (0.0-1.0), needs_more (bool), escalate (bool).""",
+            },
+            {"role": "user", "content": context},
+        ],
     )
     try:
         return json.loads(response.choices[0].message.content)
@@ -90,7 +99,7 @@ Inclus toujours : status, summary, confidence (0.0-1.0), needs_more (bool), esca
             "raw": str(response.choices[0].message.content)[:500] if response.choices else "",
             "confidence": 0.0,
             "needs_more": False,
-            "escalate": False
+            "escalate": False,
         }
 
 
@@ -126,7 +135,7 @@ Analyse le brief et retourne un JSON avec :
   "needs_more": false,
   "escalate": false
 }""",
-        context=brief
+        context=brief,
     )
     return json.dumps(result)
 
@@ -145,8 +154,7 @@ async def tool_static_analysis(files: str, langage: str = "python") -> str:
         filepath = filepath.strip()
         if langage == "python":
             r = await async_run_subprocess(
-                ["python", "-m", "pylint", filepath, "--errors-only",
-                 "--output-format=text"],
+                ["python", "-m", "pylint", filepath, "--errors-only", "--output-format=text"],
                 timeout=30,
             )
             tool_output += f"\nPylint {filepath}:\n{r.stdout[:2000]}{r.stderr[:500]}"
@@ -155,7 +163,9 @@ async def tool_static_analysis(files: str, langage: str = "python") -> str:
                 ["python", "-m", "py_compile", filepath],
                 timeout=15,
             )
-            tool_output += f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
+            tool_output += (
+                f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
+            )
 
         elif langage in ["javascript", "typescript"]:
             r = await async_run_subprocess(
@@ -181,7 +191,7 @@ Voici les résultats des outils + contexte. Retourne un JSON avec :
   "needs_more": false,
   "escalate": false
 }""",
-        context=f"Fichiers: {files}\nLangage: {langage}\n\nRésultats outils:\n{tool_output}"
+        context=f"Fichiers: {files}\nLangage: {langage}\n\nRésultats outils:\n{tool_output}",
     )
     return json.dumps(result)
 
@@ -221,18 +231,14 @@ Retourne un JSON avec :
   "escalate": false
 }
 IMPORTANT : si is_critical=true, mettre escalate=true et escalate_immediately=true.""",
-        context=f"Fichiers: {files}\n\nRésultats scan:\n{tool_output}"
+        context=f"Fichiers: {files}\n\nRésultats scan:\n{tool_output}",
     )
     return json.dumps(result)
 
 
 # ─── OUTIL 4 : Débogage dynamique ────────────────────────────────────────────
 @tool
-async def tool_runtime_debug(
-    files: str,
-    error_message: str,
-    stack_trace: str = ""
-) -> str:
+async def tool_runtime_debug(files: str, error_message: str, stack_trace: str = "") -> str:
     """
     Débogage dynamique : reproduit le crash, analyse la stack trace,
     identifie la cause racine exacte avec ligne et valeur fautive.
@@ -275,7 +281,7 @@ Erreur : {error_message}
 Stack trace : {stack_trace}
 
 Contenu des fichiers :
-{file_contents}"""
+{file_contents}""",
     )
     return json.dumps(result)
 
@@ -317,18 +323,14 @@ Retourne un JSON avec :
   "needs_more": false,
   "escalate": false
 }""",
-        context=f"Fichiers: {files}\nSymptôme: {symptom}\n\nCode analysé:\n{file_contents}"
+        context=f"Fichiers: {files}\nSymptôme: {symptom}\n\nCode analysé:\n{file_contents}",
     )
     return json.dumps(result)
 
 
 # ─── OUTIL 6 : Correction du bug ─────────────────────────────────────────────
 @tool
-def tool_fix_bug(
-    file_to_fix: str,
-    root_cause: str,
-    fix_description: str
-) -> str:
+def tool_fix_bug(file_to_fix: str, root_cause: str, fix_description: str) -> str:
     """
     Implémente la correction du bug dans le fichier cible.
     N'appeler QU'APRÈS avoir une cause racine confirmée (runtime ou static).
@@ -340,14 +342,16 @@ def tool_fix_bug(
         with open(file_to_fix.strip()) as f:
             file_content = f.read()
     except FileNotFoundError:
-        return json.dumps({
-            "status": "error",
-            "summary": f"Fichier non trouvé : {file_to_fix}",
-            "fix_applied": False,
-            "confidence": 0.0,
-            "needs_more": False,
-            "escalate": True
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "summary": f"Fichier non trouvé : {file_to_fix}",
+                "fix_applied": False,
+                "confidence": 0.0,
+                "needs_more": False,
+                "escalate": True,
+            }
+        )
 
     result = _call_subagent(
         skill_name="nexus-fix",
@@ -375,7 +379,7 @@ Cause racine confirmée : {root_cause}
 Description du fix : {fix_description}
 
 Contenu actuel du fichier :
-{file_content[:3000]}"""
+{file_content[:3000]}""",
     )
     return json.dumps(result)
 
@@ -383,10 +387,7 @@ Contenu actuel du fichier :
 # ─── OUTIL 7 : Tests de non-régression ───────────────────────────────────────
 @tool
 def tool_generate_tests(
-    bug_summary: str,
-    fix_description: str,
-    module_path: str,
-    langage: str = "python"
+    bug_summary: str, fix_description: str, module_path: str, langage: str = "python"
 ) -> str:
     """
     Génère les tests de non-régression pour le bug corrigé.
@@ -414,7 +415,7 @@ Retourne un JSON avec :
         context=f"""Bug corrigé : {bug_summary}
 Fix appliqué : {fix_description}
 Module concerné : {module_path}
-Langage : {langage}"""
+Langage : {langage}""",
     )
     return json.dumps(result)
 
@@ -427,7 +428,7 @@ def tool_write_postmortem(
     root_cause: str,
     fix_description: str,
     priority: str,
-    duration_min: int = 0
+    duration_min: int = 0,
 ) -> str:
     """
     Rédige le post-mortem et met à jour la base de connaissance.
@@ -456,7 +457,7 @@ Priorité : {priority}
 Bug : {bug_summary}
 Cause racine : {root_cause}
 Fix : {fix_description}
-Durée totale : {duration_min} minutes"""
+Durée totale : {duration_min} minutes""",
     )
     return json.dumps(result)
 

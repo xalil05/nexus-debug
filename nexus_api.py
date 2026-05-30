@@ -10,31 +10,30 @@ Logging : loguru structuré
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 from loguru import logger
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from prometheus_client import Counter, Histogram, generate_latest, REGISTRY, CONTENT_TYPE_LATEST
+from slowapi.util import get_remote_address
 
 from nexus_agent import nexus_run
-from nexus_kb import kb_store, kb_search, kb_stats, KB_VERSION
-
+from nexus_kb import kb_search, kb_stats, kb_store
 
 # ── DeepSeek healthcheck ──────────────────────────────
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -60,6 +59,7 @@ async def check_deepseek_health() -> dict:
         return {"status": "error", "error": "timeout (5s)"}
     except Exception as exc:
         return {"status": "error", "error": str(exc)[:200]}
+
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 API_PORT = int(os.getenv("NEXUS_API_PORT", "9001"))
@@ -94,6 +94,7 @@ class Database:
 
     async def connect(self) -> None:
         import aiosqlite
+
         db_path = str(self.path) if self.path else ":memory:"
         self._conn = await aiosqlite.connect(db_path)
         self._conn.row_factory = aiosqlite.Row
@@ -123,10 +124,13 @@ class Database:
             "INSERT OR REPLACE INTO tasks (task_id, status, priority, brief, created_at, completed_at, result) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                task_id, task.get("status", "en_attente"),
-                task.get("priority", "P2"), task.get("brief", ""),
+                task_id,
+                task.get("status", "en_attente"),
+                task.get("priority", "P2"),
+                task.get("brief", ""),
                 task.get("created_at", datetime.utcnow().isoformat()),
-                task.get("completed_at"), json.dumps(task.get("result", {}), ensure_ascii=False),
+                task.get("completed_at"),
+                json.dumps(task.get("result", {}), ensure_ascii=False),
             ),
         )
         await self._conn.commit()
@@ -159,6 +163,7 @@ db = Database(DB_PATH)
 
 
 # ── Dépendences ───────────────────────────────────────────────────────────────
+
 
 async def verify_api_key(request: Request) -> None:
     """Dependency : vérifie la clé API si configurée."""
@@ -199,6 +204,7 @@ class FeedbackRequest(BaseModel):
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
+
 async def notify_slack(text: str) -> None:
     if not SLACK_WEBHOOK_URL:
         return
@@ -238,6 +244,7 @@ def extract_summary(report: dict[str, Any]) -> str:
 
 # ── Tâche de fond ─────────────────────────────────────────────────────────────
 
+
 async def run_debug_task(
     task_id: str,
     brief: str,
@@ -256,20 +263,25 @@ async def run_debug_task(
         result = await nexus_run(brief, mission_id=f"DBG-{task_id}")
         result_status = result.get("status", "unknown")
 
-        task_result = {
+        {
             "status": result_status,
             "result": result,
             "completed_at": datetime.utcnow().isoformat(),
         }
-        await db.save_task(task_id, {
-            "task_id": task_id,
-            "status": "termine",
-            "brief": brief,
-            "result": result,
-            "priority": req.priority,
-            "created_at": task.get("created_at", datetime.utcnow().isoformat()) if task else datetime.utcnow().isoformat(),
-            "completed_at": datetime.utcnow().isoformat(),
-        })
+        await db.save_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "termine",
+                "brief": brief,
+                "result": result,
+                "priority": req.priority,
+                "created_at": task.get("created_at", datetime.utcnow().isoformat())
+                if task
+                else datetime.utcnow().isoformat(),
+                "completed_at": datetime.utcnow().isoformat(),
+            },
+        )
 
         # Stocker dans KB
         if result_status == "fixed":
@@ -291,32 +303,36 @@ async def run_debug_task(
         if github_info:
             gh_body = f"## 🤖 Nexus-debug — Rapport automatique\n\n{summary}"
             await post_github_comment(
-                github_info["owner"], github_info["repo"], github_info["issue"], gh_body,
+                github_info["owner"],
+                github_info["repo"],
+                github_info["issue"],
+                gh_body,
             )
 
         logger.info("Mission {} terminée : {}", task_id, result_status)
 
     except Exception as exc:
         logger.error("Mission {} échouée : {}", task_id, exc)
-        await db.save_task(task_id, {
-            "task_id": task_id,
-            "status": "erreur",
-            "priority": req.priority,
-            "brief": brief,
-            "created_at": datetime.utcnow().isoformat(),
-            "completed_at": datetime.utcnow().isoformat(),
-            "result": {"error": str(exc)},
-        })
+        await db.save_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "erreur",
+                "priority": req.priority,
+                "brief": brief,
+                "created_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.utcnow().isoformat(),
+                "result": {"error": str(exc)},
+            },
+        )
         await notify_slack(f"❌ *Nexus-debug — Erreur*\n```\n{str(exc)[:500]}\n```")
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-from contextlib import asynccontextmanager
-
 
 @asynccontextmanager
-async def lifespan(application: FastAPI):
+async def lifespan(_application: FastAPI):
     """Startup and shutdown handled via lifespan context."""
     # Validation au démarrage
     if not DEEPSEEK_API_KEY:
@@ -425,7 +441,13 @@ async def health() -> dict[str, Any]:
     }
 
 
-@app.post("/debug", status_code=202, dependencies=[Depends(verify_api_key)], tags=[TAG_DEBUG], summary="Soumettre un bug à l'agent Nexus")
+@app.post(
+    "/debug",
+    status_code=202,
+    dependencies=[Depends(verify_api_key)],
+    tags=[TAG_DEBUG],
+    summary="Soumettre un bug à l'agent Nexus",
+)
 @limiter.limit(RATE_LIMIT)
 async def debug(
     req: DebugRequest,
@@ -450,15 +472,18 @@ async def debug(
     brief_parts.append(f"\nDESCRIPTION :\n{req.description}")
     brief = "\n".join(brief_parts)
 
-    await db.save_task(task_id, {
-        "task_id": task_id,
-        "status": "en_attente",
-        "priority": req.priority,
-        "brief": brief,
-        "created_at": datetime.utcnow().isoformat(),
-        "completed_at": None,
-        "result": {},
-    })
+    await db.save_task(
+        task_id,
+        {
+            "task_id": task_id,
+            "status": "en_attente",
+            "priority": req.priority,
+            "brief": brief,
+            "created_at": datetime.utcnow().isoformat(),
+            "completed_at": None,
+            "result": {},
+        },
+    )
 
     background_tasks.add_task(run_debug_task, task_id, brief, req)
     logger.info("Bug soumis : {} ({})", task_id, req.description[:60])
@@ -489,26 +514,35 @@ async def list_tasks(limit: int = 20) -> dict[str, Any]:
 
 # ── Feedback ──────────────────────────────────────────────────────────────────
 
-@app.post("/feedback", dependencies=[Depends(verify_api_key)], tags=[TAG_DEBUG], summary="Noter la qualité d'une mission")
+
+@app.post(
+    "/feedback",
+    dependencies=[Depends(verify_api_key)],
+    tags=[TAG_DEBUG],
+    summary="Noter la qualité d'une mission",
+)
 async def feedback(req: FeedbackRequest) -> dict[str, str]:
     feedbacks: list[dict[str, Any]] = []
     if FEEDBACK_PATH.exists():
         raw = yaml.safe_load(FEEDBACK_PATH.read_text()) or []
         feedbacks = raw if isinstance(raw, list) else []
 
-    feedbacks.append({
-        "task_id": req.task_id,
-        "rating": req.rating,
-        "comment": req.comment,
-        "corrected_by_human": req.corrected_by_human,
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    feedbacks.append(
+        {
+            "task_id": req.task_id,
+            "rating": req.rating,
+            "comment": req.comment,
+            "corrected_by_human": req.corrected_by_human,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    )
     FEEDBACK_PATH.write_text(yaml.dump(feedbacks, allow_unicode=True, default_flow_style=False))
     logger.info("Feedback enregistré : {} (note={})", req.task_id, req.rating)
     return {"status": "recorded", "task_id": req.task_id}
 
 
 # ── KB ────────────────────────────────────────────────────────────────────────
+
 
 @app.get("/kb/search", tags=[TAG_KB], summary="Rechercher dans la base de connaissance")
 async def kb_search_endpoint(q: str = "") -> dict[str, Any]:
@@ -524,7 +558,10 @@ async def kb_stats_endpoint() -> dict[str, Any]:
 
 # ── Webhook GitHub ────────────────────────────────────────────────────────────
 
-@app.post("/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)")
+
+@app.post(
+    "/webhook/github", tags=[TAG_WEBHOOK], summary="Webhook entrant GitHub Issues (label: bug)"
+)
 async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
 
@@ -543,7 +580,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
     if event == "issues" and payload.get("action") in ("opened", "labeled"):
         issue = payload["issue"]
-        labels = [l["name"].lower() for l in issue.get("labels", [])]
+        labels = [lb["name"].lower() for lb in issue.get("labels", [])]
 
         if "bug" not in labels:
             return {"status": "ignored", "reason": "pas un bug"}
@@ -556,15 +593,24 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
         req = DebugRequest(description=description, project=repo)
         brief = f"PROJET : {repo}\nPRIORITÉ : P1\n\n{description}"
 
-        await db.save_task(task_id, {
-            "task_id": task_id, "status": "en_attente",
-            "priority": "P1", "brief": brief,
-            "created_at": datetime.utcnow().isoformat(),
-            "completed_at": None, "result": {},
-        })
+        await db.save_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "en_attente",
+                "priority": "P1",
+                "brief": brief,
+                "created_at": datetime.utcnow().isoformat(),
+                "completed_at": None,
+                "result": {},
+            },
+        )
 
         background_tasks.add_task(
-            run_debug_task, task_id, brief, req,
+            run_debug_task,
+            task_id,
+            brief,
+            req,
             {"owner": owner, "repo": repo, "issue": issue["number"]},
         )
         logger.info("Webhook GitHub: issue bug #{} → {}", issue["number"], task_id)
@@ -574,6 +620,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks) ->
 
 
 # ── Webhook Jira ──────────────────────────────────────────────────────────────
+
 
 @app.post("/webhook/jira", tags=[TAG_WEBHOOK], summary="Webhook entrant Jira (issuetype: Bug)")
 async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
@@ -595,12 +642,18 @@ async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> d
         task_id = uuid.uuid4().hex[:8]
         req = DebugRequest(description=full_desc, project=project)
 
-        await db.save_task(task_id, {
-            "task_id": task_id, "status": "en_attente",
-            "priority": "P1", "brief": full_desc,
-            "created_at": datetime.utcnow().isoformat(),
-            "completed_at": None, "result": {},
-        })
+        await db.save_task(
+            task_id,
+            {
+                "task_id": task_id,
+                "status": "en_attente",
+                "priority": "P1",
+                "brief": full_desc,
+                "created_at": datetime.utcnow().isoformat(),
+                "completed_at": None,
+                "result": {},
+            },
+        )
 
         background_tasks.add_task(run_debug_task, task_id, full_desc, req)
         logger.info("Webhook Jira: bug {} → {}", title[:50], task_id)
@@ -613,6 +666,7 @@ async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> d
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("NEXUS_API_PORT", "9001"))
     host = os.getenv("NEXUS_API_HOST", "0.0.0.0")
     uvicorn.run(app, host=host, port=port, log_level="info")

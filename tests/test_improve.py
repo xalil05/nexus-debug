@@ -1,13 +1,15 @@
 """Tests pour nexus_improve.py"""
+
 import os
+from pathlib import Path
+
 import pytest
 import yaml
-from pathlib import Path
 
 os.environ["NEXUS_FEEDBACK_PATH"] = "/tmp/nexus_test_feedback.yaml"
 os.environ["NEXUS_KB_PATH"] = "/tmp/nexus_test_kb.yaml"
 
-from nexus_improve import analyze_feedback, analyze_kb, load_feedback
+from nexus_improve import analyze_feedback, analyze_kb
 
 
 def setup_function():

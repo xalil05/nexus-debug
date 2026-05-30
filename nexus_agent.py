@@ -11,12 +11,12 @@ import os
 import uuid
 from typing import Annotated, Any
 
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
-from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
 from loguru import logger
 from pydantic import BaseModel
 
@@ -29,10 +29,11 @@ class NexusAgentState(BaseModel):
     État LangGraph d'Nexus.
     messages = historique complet du raisonnement (auto-accumulé par add_messages).
     """
+
     messages: Annotated[list[AnyMessage], add_messages]
     mission_id: str = ""
-    priority:   str = "P2"
-    escalate:   bool = False
+    priority: str = "P2"
+    escalate: bool = False
 
 
 # ─── System prompt d'Nexus ───────────────────────────────────────────────────
@@ -42,7 +43,7 @@ Tu reçois un brief de bug de Orchestrateur. Tu dois le résoudre en utilisant t
 
 Tes outils disponibles :
 - tool_triage          : toujours appeler en premier — classifie le bug et guide la stratégie
-- tool_static_analysis : analyse statique du code (linters, AST)  
+- tool_static_analysis : analyse statique du code (linters, AST)
 - tool_security_scan   : scan sécurité (OWASP, CVE) — uniquement si pertinent
 - tool_runtime_debug   : débogage dynamique, confirmation cause racine
 - tool_perf_analysis   : analyse perf/mémoire — uniquement si symptômes présents
@@ -100,7 +101,7 @@ def _get_llm() -> ChatOpenAI:
 
 
 # ─── Construction de l'agent ──────────────────────────────────────────────────
-def build_nexus_agent(memory_path: str | None = None) -> StateGraph:
+def build_nexus_agent(_memory_path: str | None = None) -> StateGraph:
     """
     Construit l'agent agentique Nexus avec LangGraph.
     Utilise le pattern ReAct : Reason -> Act -> Observe -> Repeat.
@@ -130,16 +131,12 @@ def build_nexus_agent(memory_path: str | None = None) -> StateGraph:
     # ── Construction du graphe ────────────────────────────────────────────────
     graph = StateGraph(NexusAgentState)
 
-    graph.add_node("nexus",  nexus_node)
-    graph.add_node("tools",   tool_node)
+    graph.add_node("nexus", nexus_node)
+    graph.add_node("tools", tool_node)
 
     graph.set_entry_point("nexus")
 
-    graph.add_conditional_edges(
-        "nexus",
-        should_continue,
-        {"tools": "tools", "end": END}
-    )
+    graph.add_conditional_edges("nexus", should_continue, {"tools": "tools", "end": END})
     # Après exécution d'un outil → retour à Nexus pour le prochain raisonnement
     graph.add_edge("tools", "nexus")
 
@@ -161,17 +158,21 @@ async def nexus_run(brief: str, mission_id: str = None) -> dict:
     agent = build_nexus_agent()
 
     initial_state = {
-        "messages": [HumanMessage(content=f"""
+        "messages": [
+            HumanMessage(
+                content=f"""
 MISSION ID : {mission_id}
 
 BRIEF DE ORCHESTRATEUR :
 {brief}
 
 Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
-""")],
+"""
+            )
+        ],
         "mission_id": mission_id,
         "priority": "P2",
-        "escalate": False
+        "escalate": False,
     }
 
     config = {"configurable": {"thread_id": mission_id}}
@@ -206,7 +207,7 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
             try:
                 if isinstance(last_content, str):
                     start = last_content.find("{")
-                    end   = last_content.rfind("}") + 1
+                    end = last_content.rfind("}") + 1
                     if start >= 0 and end > start:
                         return json.loads(last_content[start:end])
             except json.JSONDecodeError:
@@ -224,7 +225,10 @@ if __name__ == "__main__":
     logger.remove()
     logger.add(sys.stderr, level="INFO")
 
-    brief_test = sys.argv[1] if len(sys.argv) > 1 else """
+    brief_test = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else """
     PROJET   : test-app
     LANGAGE  : Python 3.11
     FICHIER  : src/main.py
@@ -233,8 +237,6 @@ if __name__ == "__main__":
                return user.id
     PRIORITÉ : P1
     """
+    )
 
     result = asyncio.run(nexus_run(brief_test))
-    print("\n" + "="*60)
-    print("RÉSULTAT FINAL :")
-    print(json.dumps(result, indent=2, ensure_ascii=False))

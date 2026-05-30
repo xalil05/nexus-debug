@@ -6,11 +6,11 @@ Permet de stocker et rechercher les patterns de bugs résolus.
 from __future__ import annotations
 
 import os
-import yaml
-from pathlib import Path
 from datetime import datetime
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any
 
+import yaml
 from loguru import logger
 
 # ── Version de la KB ──────────────────────────────────────────────────────────
@@ -38,14 +38,16 @@ def migrate_kb(data: dict[str, Any]) -> dict[str, Any]:
         # Re-indexer les patterns
         data["patterns"] = []
         for i, bug in enumerate(data.get("bugs", [])):
-            data["patterns"].append({
-                "pattern_id": f"PTN-{i + 1:04d}",
-                "keywords": bug.get("keywords", []),
-                "category": bug.get("category", "unknown"),
-                "root_cause_pattern": bug.get("root_cause", "")[:200],
-                "fix_pattern": bug.get("solution", "")[:200],
-                "ref_bug": bug.get("bug_id", ""),
-            })
+            data["patterns"].append(
+                {
+                    "pattern_id": f"PTN-{i + 1:04d}",
+                    "keywords": bug.get("keywords", []),
+                    "category": bug.get("category", "unknown"),
+                    "root_cause_pattern": bug.get("root_cause", "")[:200],
+                    "fix_pattern": bug.get("solution", "")[:200],
+                    "ref_bug": bug.get("bug_id", ""),
+                }
+            )
         data["version"] = 3
         logger.info("KB migrée v2 → v3")
 
@@ -89,7 +91,7 @@ def kb_store(
     root_cause: str,
     solution: str,
     langage: str = "",
-    keywords: Optional[list[str]] = None,
+    keywords: list[str] | None = None,
     severity: str = "medium",
 ) -> dict[str, Any]:
     """Stocke un bug résolu dans la base de connaissance."""
@@ -131,7 +133,7 @@ def kb_search(query: str, max_results: int = 5) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for bug in data.get("bugs", []):
         score = 0
-        bug_keywords = set(k.lower() for k in bug.get("keywords", []))
+        bug_keywords = {k.lower() for k in bug.get("keywords", [])}
         score += len(query_words & bug_keywords) * 2
 
         summary_lower = bug.get("summary", "").lower()

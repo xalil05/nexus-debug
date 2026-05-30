@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-from httpx import AsyncClient, ASGITransport
-
 import sys
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 sys.path.insert(0, ".")
 
 from nexus_api import app
@@ -32,7 +33,16 @@ async def test_health_structure() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
         data = resp.json()
-        required_keys = {"status", "version", "service", "db_connected", "deepseek", "api_key_configured", "timestamp", "metrics_enabled"}
+        required_keys = {
+            "status",
+            "version",
+            "service",
+            "db_connected",
+            "deepseek",
+            "api_key_configured",
+            "timestamp",
+            "metrics_enabled",
+        }
         assert required_keys.issubset(data.keys()), f"Missing keys: {required_keys - data.keys()}"
 
 
@@ -64,10 +74,13 @@ async def test_debug_invalid_priority() -> None:
     """POST /debug avec priorité invalide doit retourner 422."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/debug", json={
-            "description": "Test bug",
-            "priority": "INVALID",
-        })
+        resp = await client.post(
+            "/debug",
+            json={
+                "description": "Test bug",
+                "priority": "INVALID",
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -76,12 +89,15 @@ async def test_debug_valid_submission() -> None:
     """POST /debug valide doit retourner 202 et un task_id."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post("/debug", json={
-            "description": "Test bug simple",
-            "project": "test-project",
-            "langage": "python",
-            "priority": "P2",
-        })
+        resp = await client.post(
+            "/debug",
+            json={
+                "description": "Test bug simple",
+                "project": "test-project",
+                "langage": "python",
+                "priority": "P2",
+            },
+        )
         assert resp.status_code == 202
         data = resp.json()
         assert data["status"] == "en_attente"
@@ -178,7 +194,11 @@ async def test_github_webhook_ignored_non_bug() -> None:
             "/webhook/github",
             json={
                 "action": "opened",
-                "issue": {"title": "Feature request", "body": "", "labels": [{"name": "enhancement"}]},
+                "issue": {
+                    "title": "Feature request",
+                    "body": "",
+                    "labels": [{"name": "enhancement"}],
+                },
                 "repository": {"full_name": "test/repo"},
             },
             headers={"X-GitHub-Event": "issues"},

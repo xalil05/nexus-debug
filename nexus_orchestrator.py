@@ -8,14 +8,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
-import tempfile
 import subprocess
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from loguru import logger
-
 
 NEXUS_SKILLS_DIR = os.path.expanduser("~/.hermes/skills/agency")
 REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", os.path.expanduser("~/nexus-reports")))
@@ -32,14 +30,19 @@ def run_hermes_skill(skill_name: str, input_text: str, timeout: int = 300) -> st
             f.write(input_text)
 
         cmd = [
-            "hermes", "chat",
-            "--skills", skill_name,
-            "-q", f"@{tmp_path}",
-            "-Q", "--yolo",
+            "hermes",
+            "chat",
+            "--skills",
+            skill_name,
+            "-q",
+            f"@{tmp_path}",
+            "-Q",
+            "--yolo",
         ]
         proc = subprocess.run(
             cmd,
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
             timeout=timeout,
             env={**os.environ, "NO_COLOR": "1"},
         )
@@ -68,6 +71,7 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
 
     # Étape 1 : Vérification KB
     from nexus_kb import kb_search
+
     kb_result = kb_search(brief, max_results=3)
 
     if kb_result["count"] > 0 and kb_result["results"][0].get("confidence", 0) > 0.8:
@@ -88,11 +92,13 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
 
     # Étape 2 : Lancement de l'agent Nexus
     from nexus_agent import nexus_run
+
     result = await nexus_run(brief, mission_id=mission_id)
 
     # Étape 3 : Stockage dans KB si fix réussi
     if result.get("status") in ("fixed", "done"):
         from nexus_kb import kb_store
+
         try:
             kb_store(
                 bug_id=f"BUG-{mission_id[-8:]}",
@@ -128,4 +134,3 @@ if __name__ == "__main__":
 
     brief_test = sys.argv[1] if len(sys.argv) > 1 else "Bug test"
     result = asyncio.run(orchestrer_nexus(brief_test))
-    print(json.dumps(result, indent=2, ensure_ascii=False))

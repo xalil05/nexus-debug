@@ -1,13 +1,12 @@
 """Tests pour nexus_kb.py"""
+
 import os
-import tempfile
-import pytest
 from pathlib import Path
 
 # Surcharger le chemin KB pour les tests
 os.environ["NEXUS_KB_PATH"] = "/tmp/nexus_test_kb.yaml"
 
-from nexus_kb import kb_store, kb_search, kb_stats, get_kb_path
+from nexus_kb import get_kb_path, kb_search, kb_stats, kb_store
 
 
 def setup_function():
@@ -56,7 +55,9 @@ def test_kb_stats_empty():
 def test_kb_multiple_entries():
     kb_store(bug_id="B1", category="null", summary="Null ref", root_cause="null", solution="fix")
     kb_store(bug_id="B2", category="type", summary="Type error", root_cause="type", solution="fix")
-    kb_store(bug_id="B3", category="null", summary="Another null", root_cause="null", solution="fix")
+    kb_store(
+        bug_id="B3", category="null", summary="Another null", root_cause="null", solution="fix"
+    )
 
     stats = kb_stats()
     assert stats["total_bugs"] == 3

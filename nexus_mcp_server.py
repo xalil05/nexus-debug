@@ -9,16 +9,14 @@ import asyncio
 import json
 import os
 import subprocess
-from pathlib import Path
-from typing import Any
 
 from loguru import logger
 from mcp.server import FastMCP
 
-from nexus_kb import kb_store, kb_search, kb_stats
-
+from nexus_kb import kb_search, kb_store
 
 # ─── Async subprocess helper ──────────────────────────────────────────────────
+
 
 def _run_subprocess(
     cmd: list[str],
@@ -27,8 +25,10 @@ def _run_subprocess(
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
-        capture_output=True, text=True,
-        timeout=timeout, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -39,8 +39,12 @@ async def async_run_mcp_subprocess(
 ) -> subprocess.CompletedProcess:
     """Exécute un subprocess sans bloquer l'event loop MCP."""
     return await asyncio.to_thread(
-        _run_subprocess, cmd, timeout, cwd,
+        _run_subprocess,
+        cmd,
+        timeout,
+        cwd,
     )
+
 
 mcp = FastMCP("nexus-debug")
 
@@ -72,26 +76,31 @@ async def sandbox_execute(code: str, language: str = "python", timeout: int = 10
     try:
         if language == "python":
             r = await async_run_mcp_subprocess(
-                ["python", "-c", code], timeout=timeout,
+                ["python", "-c", code],
+                timeout=timeout,
             )
         elif language == "bash":
             r = await async_run_mcp_subprocess(
-                ["bash", "-c", code], timeout=timeout,
+                ["bash", "-c", code],
+                timeout=timeout,
             )
         elif language in ("javascript", "js"):
             r = await async_run_mcp_subprocess(
-                ["node", "-e", code], timeout=timeout,
+                ["node", "-e", code],
+                timeout=timeout,
             )
         else:
             return json.dumps({"status": "error", "error": f"Langage non supporté: {language}"})
 
         logger.debug("sandbox_execute ({}) — exit {}", language, r.returncode)
-        return json.dumps({
-            "status": "success" if r.returncode == 0 else "error",
-            "stdout": r.stdout[:2000],
-            "stderr": r.stderr[:2000],
-            "exit_code": r.returncode,
-        })
+        return json.dumps(
+            {
+                "status": "success" if r.returncode == 0 else "error",
+                "stdout": r.stdout[:2000],
+                "stderr": r.stderr[:2000],
+                "exit_code": r.returncode,
+            }
+        )
     except subprocess.TimeoutExpired:
         return json.dumps({"status": "error", "error": "Timeout dépassé"})
     except Exception as e:
@@ -106,14 +115,18 @@ async def run_diagnostic(command: str, workdir: str = "") -> str:
     cwd = os.path.join(CODEBASE_PATH, workdir) if workdir else CODEBASE_PATH
     try:
         r = await async_run_mcp_subprocess(
-            command.split(), timeout=120, cwd=cwd,
+            command.split(),
+            timeout=120,
+            cwd=cwd,
         )
-        return json.dumps({
-            "status": "success" if r.returncode == 0 else "error",
-            "stdout": r.stdout[:5000],
-            "stderr": r.stderr[:2000],
-            "exit_code": r.returncode,
-        })
+        return json.dumps(
+            {
+                "status": "success" if r.returncode == 0 else "error",
+                "stdout": r.stdout[:5000],
+                "stderr": r.stderr[:2000],
+                "exit_code": r.returncode,
+            }
+        )
     except subprocess.TimeoutExpired:
         return json.dumps({"status": "error", "error": "Timeout (120s)"})
     except Exception as e:
@@ -148,25 +161,35 @@ def kb_search_tool(query: str) -> str:
 # ─── OUTIL 6 : kb_store ───────────────────────────────────────────────────────
 @mcp.tool()
 def kb_store_tool(
-    bug_id: str, category: str, summary: str,
-    root_cause: str, solution: str,
+    bug_id: str,
+    category: str,
+    summary: str,
+    root_cause: str,
+    solution: str,
 ) -> str:
     """Stocke un bug résolu dans la base de connaissance."""
-    return json.dumps(kb_store(
-        bug_id=bug_id, category=category, summary=summary,
-        root_cause=root_cause, solution=solution,
-    ))
+    return json.dumps(
+        kb_store(
+            bug_id=bug_id,
+            category=category,
+            summary=summary,
+            root_cause=root_cause,
+            solution=solution,
+        )
+    )
 
 
 # ─── OUTIL 7 : sentry_event (placeholder) ──────────────────────────────────────
 @mcp.tool()
 def get_sentry_event(event_id: str) -> str:
     """Placeholder pour récupérer un événement Sentry. Configure SENTRY_DSN."""
-    return json.dumps({
-        "status": "info",
-        "message": "Sentry non configuré. Définir SENTRY_DSN pour activer.",
-        "event_id": event_id,
-    })
+    return json.dumps(
+        {
+            "status": "info",
+            "message": "Sentry non configuré. Définir SENTRY_DSN pour activer.",
+            "event_id": event_id,
+        }
+    )
 
 
 if __name__ == "__main__":

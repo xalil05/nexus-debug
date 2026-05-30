@@ -5,13 +5,11 @@ Analyse les feedbacks et la KB pour proposer des améliorations des prompts/skil
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 from datetime import datetime
-from typing import Any
+from pathlib import Path
 
 import yaml
 from loguru import logger
@@ -108,7 +106,9 @@ def analyze_kb() -> dict:
 
     suggestions = []
     if len(bugs) >= 10:
-        suggestions.append(f"Base KB solide ({len(bugs)} bugs). Enrichir les patterns de prévention.")
+        suggestions.append(
+            f"Base KB solide ({len(bugs)} bugs). Enrichir les patterns de prévention."
+        )
     if top_categories:
         suggestions.append(f"Top bugs: {', '.join(f'{c}({n})' for c, n in top_categories)}")
 
@@ -127,37 +127,35 @@ def generate_report() -> str:
     kb = analyze_kb()
 
     report = f"""# 📊 Nexus-debug — Rapport d'amélioration continue
-*Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}*
+*Généré le {datetime.now().strftime("%d/%m/%Y à %H:%M")}*
 
 ## Feedback utilisateur
-- **Total feedbacks** : {fb.get('total_feedback', 0)}
-- **Note moyenne** : {fb.get('average_rating', 'N/A')}/5
-- **Feedbacks négatifs** : {fb.get('low_ratings_count', 0)}
-- **Issues fréquentes** : {', '.join(fb.get('common_issues', ['Aucune'])) or 'Aucune'}
+- **Total feedbacks** : {fb.get("total_feedback", 0)}
+- **Note moyenne** : {fb.get("average_rating", "N/A")}/5
+- **Feedbacks négatifs** : {fb.get("low_ratings_count", 0)}
+- **Issues fréquentes** : {", ".join(fb.get("common_issues", ["Aucune"])) or "Aucune"}
 
 ## Base de connaissance
-- **Bugs résolus** : {kb.get('total_bugs', 0)}
-- **Patterns identifiés** : {kb.get('total_patterns', 0)}
-- **Top catégories** : {', '.join(f'{c}({n})' for c, n in kb.get('top_categories', [])) or 'N/A'}
-- **Top langages** : {', '.join(f'{l}({n})' for l, n in kb.get('top_langages', [])) or 'N/A'}
+- **Bugs résolus** : {kb.get("total_bugs", 0)}
+- **Patterns identifiés** : {kb.get("total_patterns", 0)}
+- **Top catégories** : {", ".join(f"{c}({n})" for c, n in kb.get("top_categories", [])) or "N/A"}
+- **Top langages** : {", ".join(f"{lb}({n})" for lb, n in kb.get("top_langages", [])) or "N/A"}
 
 ## Suggestions d'amélioration
 """
-    for s in fb.get('suggestions', []) + kb.get('suggestions', []):
+    for s in fb.get("suggestions", []) + kb.get("suggestions", []):
         report += f"- {s}\n"
 
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = REPORTS_DIR / f"improve_report_{now}.md"
     report_path.write_text(report)
     logger.info("Rapport d'amélioration généré: {}", report_path)
-    print(report)
     return str(report_path)
 
 
 def init_git() -> None:
     """Versionne les prompts des agents."""
     if not SKILL_DIR.exists():
-        print(f"❌ Dossier skill non trouvé: {SKILL_DIR}")
         return
 
     # Init git si pas fait
@@ -166,15 +164,27 @@ def init_git() -> None:
         subprocess.run(["git", "init"], cwd=str(SKILL_DIR), capture_output=True)
         subprocess.run(["git", "add", "-A"], cwd=str(SKILL_DIR), capture_output=True)
         subprocess.run(
-            ["git", "commit", "-m", f"Version initiale des prompts Nexus {datetime.now().strftime('%Y%m%d')}"],
-            cwd=str(SKILL_DIR), capture_output=True
+            [
+                "git",
+                "commit",
+                "-m",
+                f"Version initiale des prompts Nexus {datetime.now().strftime('%Y%m%d')}",
+            ],
+            cwd=str(SKILL_DIR),
+            capture_output=True,
         )
         logger.info("Git init dans {}", SKILL_DIR)
     else:
         subprocess.run(["git", "add", "-A"], cwd=str(SKILL_DIR), capture_output=True)
         subprocess.run(
-            ["git", "commit", "-m", f"Mise à jour prompts {datetime.now().strftime('%Y%m%d_%H%M')}"],
-            cwd=str(SKILL_DIR), capture_output=True
+            [
+                "git",
+                "commit",
+                "-m",
+                f"Mise à jour prompts {datetime.now().strftime('%Y%m%d_%H%M')}",
+            ],
+            cwd=str(SKILL_DIR),
+            capture_output=True,
         )
         logger.info("Prompts versionnés dans {}", SKILL_DIR)
 
@@ -184,11 +194,9 @@ if __name__ == "__main__":
     logger.add(sys.stderr, level="INFO")
     if "--report" in sys.argv:
         report_path = generate_report()
-        print(f"\n📄 Rapport sauvegardé: {report_path}")
     elif "--init-git" in sys.argv:
         init_git()
     elif "--apply" in sys.argv:
-        print("ℹ️ Mode --apply : les suggestions sont générées ci-dessus. À toi de patcher manuellement.")
         generate_report()
     else:
         generate_report()
