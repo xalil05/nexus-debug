@@ -1,16 +1,20 @@
-#!/usr/bin/env python3
 """
 nexus_improve.py — Amélioration continue de Nexus-debug
 Analyse les feedbacks et la KB pour proposer des améliorations des prompts/skills.
 """
+
+from __future__ import annotations
+
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 import yaml
+from loguru import logger
 
 # Chemins
 FEEDBACK_PATH = Path(os.getenv("NEXUS_FEEDBACK_PATH", os.path.expanduser("~/nexus_feedback.yaml")))
@@ -145,12 +149,12 @@ def generate_report() -> str:
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = REPORTS_DIR / f"improve_report_{now}.md"
     report_path.write_text(report)
-
+    logger.info("Rapport d'amélioration généré: {}", report_path)
     print(report)
     return str(report_path)
 
 
-def init_git():
+def init_git() -> None:
     """Versionne les prompts des agents."""
     if not SKILL_DIR.exists():
         print(f"❌ Dossier skill non trouvé: {SKILL_DIR}")
@@ -165,17 +169,19 @@ def init_git():
             ["git", "commit", "-m", f"Version initiale des prompts Nexus {datetime.now().strftime('%Y%m%d')}"],
             cwd=str(SKILL_DIR), capture_output=True
         )
-        print(f"✅ Git init dans {SKILL_DIR}")
+        logger.info("Git init dans {}", SKILL_DIR)
     else:
         subprocess.run(["git", "add", "-A"], cwd=str(SKILL_DIR), capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", f"Mise à jour prompts {datetime.now().strftime('%Y%m%d_%H%M')}"],
             cwd=str(SKILL_DIR), capture_output=True
         )
-        print(f"✅ Prompts versionnés dans {SKILL_DIR}")
+        logger.info("Prompts versionnés dans {}", SKILL_DIR)
 
 
 if __name__ == "__main__":
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
     if "--report" in sys.argv:
         report_path = generate_report()
         print(f"\n📄 Rapport sauvegardé: {report_path}")

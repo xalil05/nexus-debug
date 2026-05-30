@@ -1,9 +1,15 @@
 """
-nexus_api.py — API REST pour Nexus-debug v2
-Endpoints : /debug, /status, /report, /health, /kb, /feedback
+nexus_api.py — API REST pour Nexus-debug v2.1
+Endpoints : /debug, /status, /report, /health, /kb, /feedback, /metrics
 Webhooks : /webhook/github, /webhook/jira
 Notifications : Slack
+Sécurité : API Key auth + Rate limiting + Validation
+Persistance : SQLite (tasks) + YAML (KB + feedback)
+Logging : loguru structuré
 """
+
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import hmac
@@ -12,61 +18,159 @@ import os
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 import yaml
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from loguru import logger
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from nexus_agent import nexus_run
 from nexus_kb import kb_store, kb_search, kb_stats
 
-# ─── Configuration ────────────────────────────────────────────────────────────
+# ── Configuration ─────────────────────────────────────────────────────────────
 API_PORT = int(os.getenv("NEXUS_API_PORT", "9001"))
 API_HOST = os.getenv("NEXUS_API_HOST", "0.0.0.0")
+API_KEY = os.getenv("NEXUS_API_KEY", "")
 GITHUB_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
+DB_PATH = Path(os.getenv("NEXUS_DB_PATH", os.path.expanduser("~/nexus.db")))
 REPORTS_DIR = Path(os.getenv("NEXUS_REPORTS_DIR", os.path.expanduser("~/nexus-reports")))
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 FEEDBACK_PATH = Path(os.getenv("NEXUS_FEEDBACK_PATH", os.path.expanduser("~/nexus_feedback.yaml")))
+MAX_BRIEF_LENGTH = int(os.getenv("NEXUS_MAX_BRIEF_LENGTH", "5000"))
+RATE_LIMIT = os.getenv("NEXUS_RATE_LIMIT", "10/minute")
 
-app = FastAPI(title="Nexus-debug API", version="2.0.0")
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ── Rate Limiter ──────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
 
-# ─── Stockage des tâches ──────────────────────────────────────────────────────
-tasks_store: dict[str, dict] = {}
+# ── Logger ────────────────────────────────────────────────────────────────────
+logger.add(REPORTS_DIR / "nexus_api.log", rotation="10 MB", retention=3, level="INFO")
+logger.add(REPORTS_DIR / "nexus_api_error.log", rotation="10 MB", retention=7, level="ERROR")
 
 
-# ─── Modèles ───────────────────────────────────────────────────────────────────
+# ── Database ──────────────────────────────────────────────────────────────────
+class Database:
+    """SQLite lightweight persistence for tasks store."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._conn: Any = None
+
+    async def connect(self) -> None:
+        import aiosqlite
+        db_path = str(self.path) if self.path else ":memory:"
+        self._conn = await aiosqlite.connect(db_path)
+        self._conn.row_factory = aiosqlite.Row
+        await self._conn.executescript("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'en_attente',
+                priority TEXT DEFAULT 'P2',
+                brief TEXT DEFAULT '',
+                created_at TEXT,
+                completed_at TEXT,
+                result TEXT DEFAULT '{}'
+            );
+            CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+        """)
+        await self._conn.commit()
+        logger.info("Database ready at {}", self.path)
+
+    async def _ensure_connected(self) -> None:
+        """Auto-connect on first use — handles test contexts without startup event."""
+        if self._conn is None:
+            await self.connect()
+
+    async def save_task(self, task_id: str, task: dict[str, Any]) -> None:
+        await self._ensure_connected()
+        await self._conn.execute(
+            "INSERT OR REPLACE INTO tasks (task_id, status, priority, brief, created_at, completed_at, result) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id, task.get("status", "en_attente"),
+                task.get("priority", "P2"), task.get("brief", ""),
+                task.get("created_at", datetime.utcnow().isoformat()),
+                task.get("completed_at"), json.dumps(task.get("result", {}), ensure_ascii=False),
+            ),
+        )
+        await self._conn.commit()
+
+    async def get_task(self, task_id: str) -> dict[str, Any] | None:
+        await self._ensure_connected()
+        cursor = await self._conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        task = dict(row)
+        task["result"] = json.loads(task.get("result", "{}"))
+        return task
+
+    async def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
+        await self._ensure_connected()
+        cursor = await self._conn.execute(
+            "SELECT task_id, status, priority, created_at FROM tasks ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def close(self) -> None:
+        if self._conn:
+            await self._conn.close()
+
+
+db = Database(DB_PATH)
+
+
+# ── Dépendences ───────────────────────────────────────────────────────────────
+
+async def verify_api_key(request: Request) -> None:
+    """Dependency : vérifie la clé API si configurée."""
+    if not API_KEY:
+        return
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {API_KEY}" and auth != API_KEY:
+        raise HTTPException(status_code=401, detail="Clé API invalide")
+
+
+def validate_brief_length(request: DebugRequest) -> DebugRequest:
+    """Valide la taille du brief."""
+    if len(request.description) > MAX_BRIEF_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Description trop longue ({len(request.description)} chars, max {MAX_BRIEF_LENGTH})",
+        )
+    return request
+
+
+# ── Modèles ───────────────────────────────────────────────────────────────────
 class DebugRequest(BaseModel):
-    description: str
-    project: str = ""
-    langage: str = ""
-    fichier: str = ""
-    erreur: str = ""
-    stack: str = ""
-    priority: str = "P2"
+    description: str = Field(..., min_length=1, max_length=5000, description="Description du bug")
+    project: str = Field(default="", max_length=200)
+    langage: str = Field(default="", max_length=50)
+    fichier: str = Field(default="", max_length=500)
+    erreur: str = Field(default="", max_length=2000)
+    stack: str = Field(default="", max_length=10000)
+    priority: str = Field(default="P2", pattern=r"^P[0-4]$")
 
 
 class FeedbackRequest(BaseModel):
-    task_id: str
+    task_id: str = Field(..., min_length=1)
     rating: int = Field(..., ge=1, le=5)
-    comment: str = ""
-    corrected_by_human: str = ""
+    comment: str = Field(default="", max_length=2000)
+    corrected_by_human: str = Field(default="", max_length=5000)
 
 
-# ─── Notifications ────────────────────────────────────────────────────────────
+# ── Notifications ─────────────────────────────────────────────────────────────
 
 async def notify_slack(text: str) -> None:
     if not SLACK_WEBHOOK_URL:
@@ -74,8 +178,8 @@ async def notify_slack(text: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             await client.post(SLACK_WEBHOOK_URL, json={"text": text})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Slack notification failed: {}", exc)
 
 
 async def post_github_comment(owner: str, repo: str, issue_number: int, body: str) -> None:
@@ -87,13 +191,13 @@ async def post_github_comment(owner: str, repo: str, issue_number: int, body: st
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(url, json={"body": body}, headers=headers)
             if resp.status_code not in (200, 201):
-                print(f"[GitHub] Erreur {resp.status_code}: {resp.text[:200]}")
-    except Exception as e:
-        print(f"[GitHub] Erreur : {e}")
+                logger.warning("GitHub comment failed: {} {}", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.warning("GitHub comment error: {}", exc)
 
 
-def extract_summary(report: dict) -> str:
-    lines = []
+def extract_summary(report: dict[str, Any]) -> str:
+    lines: list[str] = []
     if report.get("root_cause"):
         lines.append(f"Cause racine : {report['root_cause']}")
     if report.get("fix_summary"):
@@ -105,20 +209,43 @@ def extract_summary(report: dict) -> str:
     return "\n".join(lines) if lines else str(report)[:300]
 
 
-# ─── Tâche de fond ────────────────────────────────────────────────────────────
+# ── Tâche de fond ─────────────────────────────────────────────────────────────
 
-async def run_debug_task(task_id: str, brief: str, req: DebugRequest, github_info: dict = None):
-    tasks_store[task_id]["status"] = "en_cours"
-    tasks_store[task_id]["updated_at"] = datetime.utcnow().isoformat()
+async def run_debug_task(
+    task_id: str,
+    brief: str,
+    req: DebugRequest,
+    github_info: dict[str, Any] | None = None,
+) -> None:
+    task = await db.get_task(task_id)
+    if task:
+        task["status"] = "en_cours"
+        task["updated_at"] = datetime.utcnow().isoformat()
+        await db.save_task(task_id, task)
+
+    logger.info("Démarrage mission {} — {}", task_id, req.description[:80])
 
     try:
         result = await nexus_run(brief, mission_id=f"DBG-{task_id}")
-        tasks_store[task_id]["status"] = "termine"
-        tasks_store[task_id]["result"] = result
-        tasks_store[task_id]["completed_at"] = datetime.utcnow().isoformat()
+        result_status = result.get("status", "unknown")
 
-        # Stocker dans KB si fix réussi
-        if result.get("status") == "fixed":
+        task_result = {
+            "status": result_status,
+            "result": result,
+            "completed_at": datetime.utcnow().isoformat(),
+        }
+        await db.save_task(task_id, {
+            "task_id": task_id,
+            "status": "termine",
+            "brief": brief,
+            "result": result,
+            "priority": req.priority,
+            "created_at": task.get("created_at", datetime.utcnow().isoformat()) if task else datetime.utcnow().isoformat(),
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+
+        # Stocker dans KB
+        if result_status == "fixed":
             kb_store(
                 bug_id=f"BUG-{task_id}",
                 category=result.get("bug_category", "unknown"),
@@ -129,99 +256,150 @@ async def run_debug_task(task_id: str, brief: str, req: DebugRequest, github_inf
                 keywords=[req.project, req.langage] if req.project or req.langage else [],
             )
 
-        # Sauvegarder le rapport
-        report_path = REPORTS_DIR / f"report_{task_id}.json"
-        with open(report_path, "w") as f:
-            json.dump(tasks_store[task_id], f, indent=2, ensure_ascii=False)
-
         # Notifications
         summary = extract_summary(result)
-        slack_msg = f"🧬 *Nexus-debug — Bug résolu*\n```\n{summary}\n```\n📄 Rapport : {report_path}"
+        slack_msg = f"🧬 *Nexus-debug — Bug résolu*\n```\n{summary}\n```"
         await notify_slack(slack_msg)
 
         if github_info:
-            gh_body = f"## 🤖 Nexus-debug — Rapport automatique\n\n{summary}\n\n[Rapport complet]({report_path})"
-            await post_github_comment(github_info["owner"], github_info["repo"], github_info["issue"], gh_body)
+            gh_body = f"## 🤖 Nexus-debug — Rapport automatique\n\n{summary}"
+            await post_github_comment(
+                github_info["owner"], github_info["repo"], github_info["issue"], gh_body,
+            )
 
-    except Exception as e:
-        tasks_store[task_id]["status"] = "erreur"
-        tasks_store[task_id]["result"] = {"error": str(e)}
-        await notify_slack(f"❌ *Nexus-debug — Erreur*\n```\n{str(e)[:500]}\n```")
+        logger.info("Mission {} terminée : {}", task_id, result_status)
+
+    except Exception as exc:
+        logger.error("Mission {} échouée : {}", task_id, exc)
+        await db.save_task(task_id, {
+            "task_id": task_id,
+            "status": "erreur",
+            "priority": req.priority,
+            "brief": brief,
+            "created_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.utcnow().isoformat(),
+            "result": {"error": str(exc)},
+        })
+        await notify_slack(f"❌ *Nexus-debug — Erreur*\n```\n{str(exc)[:500]}\n```")
 
 
-# ─── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Startup and shutdown handled via lifespan context."""
+    await db.connect()
+    logger.info("Nexus-debug API v2.1 démarrée sur {}:{}", API_HOST, API_PORT)
+    yield
+    await db.close()
+    logger.info("Nexus-debug API arrêtée")
+
+
+app = FastAPI(
+    title="Nexus-debug API",
+    version="2.1.0",
+    description="🧬 Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# ── Middleware & config ───────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.getenv("NEXUS_CORS_ORIGIN", "*")],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, Any]:
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "service": "nexus-debug",
+        "db_connected": db._conn is not None,
         "github_webhook": bool(GITHUB_SECRET),
         "slack_webhook": bool(SLACK_WEBHOOK_URL),
+        "api_key_configured": bool(API_KEY),
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
-@app.post("/debug", status_code=202)
-async def debug(req: DebugRequest, background_tasks: BackgroundTasks):
-    task_id = uuid.uuid4().hex[:8]
+@app.post("/debug", status_code=202, dependencies=[Depends(verify_api_key)])
+@limiter.limit(RATE_LIMIT)
+async def debug(
+    req: DebugRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+) -> dict[str, Any]:
+    validate_brief_length(req)
 
-    brief_parts = []
-    if req.project: brief_parts.append(f"PROJET : {req.project}")
-    if req.langage: brief_parts.append(f"LANGAGE : {req.langage}")
-    if req.fichier: brief_parts.append(f"FICHIER : {req.fichier}")
-    if req.erreur:  brief_parts.append(f"ERREUR : {req.erreur}")
-    if req.stack:   brief_parts.append(f"STACK : {req.stack}")
+    task_id = uuid.uuid4().hex[:8]
+    brief_parts: list[str] = []
+    if req.project:
+        brief_parts.append(f"PROJET : {req.project}")
+    if req.langage:
+        brief_parts.append(f"LANGAGE : {req.langage}")
+    if req.fichier:
+        brief_parts.append(f"FICHIER : {req.fichier}")
+    if req.erreur:
+        brief_parts.append(f"ERREUR : {req.erreur}")
+    if req.stack:
+        brief_parts.append(f"STACK : {req.stack}")
     brief_parts.append(f"PRIORITÉ : {req.priority}")
     brief_parts.append(f"\nDESCRIPTION :\n{req.description}")
     brief = "\n".join(brief_parts)
 
-    tasks_store[task_id] = {
+    await db.save_task(task_id, {
         "task_id": task_id,
         "status": "en_attente",
         "priority": req.priority,
         "brief": brief,
         "created_at": datetime.utcnow().isoformat(),
         "completed_at": None,
-        "result": None,
-    }
+        "result": {},
+    })
 
     background_tasks.add_task(run_debug_task, task_id, brief, req)
+    logger.info("Bug soumis : {} ({})", task_id, req.description[:60])
     return {"task_id": task_id, "status": "en_attente"}
 
 
 @app.get("/status/{task_id}")
-async def get_status(task_id: str):
-    task = tasks_store.get(task_id)
+async def get_status(task_id: str) -> dict[str, Any]:
+    task = await db.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Tâche non trouvée")
     return {"task_id": task_id, "status": task["status"]}
 
 
 @app.get("/report/{task_id}")
-async def get_report(task_id: str):
-    task = tasks_store.get(task_id)
+async def get_report(task_id: str) -> dict[str, Any]:
+    task = await db.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Tâche non trouvée")
     return task
 
 
 @app.get("/tasks")
-async def list_tasks():
-    return {
-        "tasks": [
-            {"task_id": t["task_id"], "status": t["status"],
-             "priority": t["priority"], "created_at": t["created_at"]}
-            for t in tasks_store.values()
-        ]
-    }
+async def list_tasks(limit: int = 20) -> dict[str, Any]:
+    tasks = await db.list_tasks(limit=min(limit, 100))
+    return {"tasks": tasks, "total": len(tasks)}
 
 
-# ─── Feedback ──────────────────────────────────────────────────────────────────
+# ── Feedback ──────────────────────────────────────────────────────────────────
 
-@app.post("/feedback")
-async def feedback(req: FeedbackRequest):
-    feedbacks = []
+@app.post("/feedback", dependencies=[Depends(verify_api_key)])
+async def feedback(req: FeedbackRequest) -> dict[str, str]:
+    feedbacks: list[dict[str, Any]] = []
     if FEEDBACK_PATH.exists():
         raw = yaml.safe_load(FEEDBACK_PATH.read_text()) or []
         feedbacks = raw if isinstance(raw, list) else []
@@ -234,34 +412,35 @@ async def feedback(req: FeedbackRequest):
         "timestamp": datetime.utcnow().isoformat(),
     })
     FEEDBACK_PATH.write_text(yaml.dump(feedbacks, allow_unicode=True, default_flow_style=False))
+    logger.info("Feedback enregistré : {} (note={})", req.task_id, req.rating)
     return {"status": "recorded", "task_id": req.task_id}
 
 
-# ─── KB ────────────────────────────────────────────────────────────────────────
+# ── KB ────────────────────────────────────────────────────────────────────────
 
 @app.get("/kb/search")
-async def kb_search_endpoint(q: str = ""):
+async def kb_search_endpoint(q: str = "") -> dict[str, Any]:
     if not q:
         return kb_stats()
     return kb_search(q)
 
 
 @app.get("/kb/stats")
-async def kb_stats_endpoint():
+async def kb_stats_endpoint() -> dict[str, Any]:
     return kb_stats()
 
 
-# ─── Webhook GitHub ───────────────────────────────────────────────────────────
+# ── Webhook GitHub ────────────────────────────────────────────────────────────
 
 @app.post("/webhook/github")
-async def github_webhook(request: Request, background_tasks: BackgroundTasks):
+async def github_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.body()
 
-    # Vérification HMAC
     if GITHUB_SECRET:
         signature = request.headers.get("X-Hub-Signature-256", "")
         expected = "sha256=" + hmac.new(GITHUB_SECRET.encode(), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
+            logger.warning("Webhook GitHub: signature invalide")
             raise HTTPException(status_code=403, detail="Signature invalide")
 
     event = request.headers.get("X-GitHub-Event", "")
@@ -272,14 +451,12 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 
     if event == "issues" and payload.get("action") in ("opened", "labeled"):
         issue = payload["issue"]
-        title = issue.get("title", "")
-        body_text = issue.get("body", "") or ""
         labels = [l["name"].lower() for l in issue.get("labels", [])]
 
         if "bug" not in labels:
             return {"status": "ignored", "reason": "pas un bug"}
 
-        description = f"{title}\n\n{body_text}"
+        description = f"{issue.get('title', '')}\n\n{issue.get('body', '') or ''}"
         task_id = uuid.uuid4().hex[:8]
         repo_full = payload.get("repository", {}).get("full_name", "")
         owner, repo = repo_full.split("/") if "/" in repo_full else ("", "")
@@ -287,27 +464,27 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         req = DebugRequest(description=description, project=repo)
         brief = f"PROJET : {repo}\nPRIORITÉ : P1\n\n{description}"
 
-        tasks_store[task_id] = {
+        await db.save_task(task_id, {
             "task_id": task_id, "status": "en_attente",
             "priority": "P1", "brief": brief,
             "created_at": datetime.utcnow().isoformat(),
-            "completed_at": None, "result": None,
-            "github_info": {"owner": owner, "repo": repo, "issue": issue["number"]},
-        }
+            "completed_at": None, "result": {},
+        })
 
         background_tasks.add_task(
             run_debug_task, task_id, brief, req,
-            {"owner": owner, "repo": repo, "issue": issue["number"]}
+            {"owner": owner, "repo": repo, "issue": issue["number"]},
         )
+        logger.info("Webhook GitHub: issue bug #{} → {}", issue["number"], task_id)
         return {"task_id": task_id, "status": "en_attente"}
 
     return {"status": "ignored"}
 
 
-# ─── Webhook Jira ─────────────────────────────────────────────────────────────
+# ── Webhook Jira ──────────────────────────────────────────────────────────────
 
 @app.post("/webhook/jira")
-async def jira_webhook(request: Request, background_tasks: BackgroundTasks):
+async def jira_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, Any]:
     body = await request.json()
     event_type = body.get("webhookEvent", "")
 
@@ -316,31 +493,31 @@ async def jira_webhook(request: Request, background_tasks: BackgroundTasks):
         fields = issue.get("fields", {})
         issuetype = fields.get("issuetype", {}).get("name", "").lower()
 
-        if "bug" not in issuetype.lower():
+        if "bug" not in issuetype:
             return {"status": "ignored", "reason": "pas un bug"}
 
         title = fields.get("summary", "")
         description = fields.get("description", "") or ""
         project = fields.get("project", {}).get("key", "")
-
         full_desc = f"{title}\n\n{description}"
         task_id = uuid.uuid4().hex[:8]
         req = DebugRequest(description=full_desc, project=project)
 
-        tasks_store[task_id] = {
+        await db.save_task(task_id, {
             "task_id": task_id, "status": "en_attente",
             "priority": "P1", "brief": full_desc,
             "created_at": datetime.utcnow().isoformat(),
-            "completed_at": None, "result": None,
-        }
+            "completed_at": None, "result": {},
+        })
 
         background_tasks.add_task(run_debug_task, task_id, full_desc, req)
+        logger.info("Webhook Jira: bug {} → {}", title[:50], task_id)
         return {"task_id": task_id, "status": "en_attente"}
 
     return {"status": "ignored"}
 
 
-# ─── Démarrage ─────────────────────────────────────────────────────────────────
+# ── Démarrage ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,0 +1,34 @@
+# =============================================================================
+# Nexus-Debug — docker-compose
+# =============================================================================
+version: "3.9"
+
+services:
+  nexus:
+    build: .
+    container_name: nexus-debug
+    ports:
+      - "9001:9001"
+    volumes:
+      - nexus_kb:/data/nexus/kb
+      - nexus_reports:/data/nexus/reports
+      - nexus_feedback:/data/nexus/feedback
+      - nexus_db:/data/nexus
+    env_file:
+      - .env.example
+    environment:
+      - NEXUS_API_HOST=0.0.0.0
+      - NEXUS_API_PORT=9001
+      - TZ=UTC
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:9001/health').raise_for_status()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  nexus_kb:
+  nexus_reports:
+  nexus_feedback:
+  nexus_db:

@@ -3,10 +3,16 @@ nexus_tools.py — Les 8 sous-agents comme outils LangGraph
 Switché de Anthropic → DeepSeek V4 Pro (OpenAI-compatible)
 Chaque tool = un sous-agent spécialisé qu'Nexus peut appeler librement.
 """
+
+from __future__ import annotations
+
 import json
 import os
 import subprocess
+from typing import Any
+
 from langchain_core.tools import tool
+from loguru import logger
 from openai import OpenAI
 
 # ─── Client DeepSeek ──────────────────────────────────────────────────────────
@@ -37,6 +43,7 @@ Inclus toujours : status, summary, confidence (0.0-1.0), needs_more (bool), esca
     try:
         return json.loads(response.choices[0].message.content)
     except (json.JSONDecodeError, AttributeError, TypeError, IndexError):
+        logger.warning("Sub-agent {} returned unparseable response", skill_name)
         return {
             "status": "error",
             "summary": "Réponse non parseable",
@@ -100,22 +107,24 @@ def tool_static_analysis(files: str, langage: str = "python") -> str:
             r = subprocess.run(
                 ["python", "-m", "pylint", filepath, "--errors-only",
                  "--output-format=text"],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=30,
             )
-            tool_output += f"\nPylint {filepath}:\n{r.stdout}{r.stderr}"
+            tool_output += f"\nPylint {filepath}:\n{r.stdout[:2000]}{r.stderr[:500]}"
 
             r2 = subprocess.run(
                 ["python", "-m", "py_compile", filepath],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=15,
             )
-            tool_output += f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr}"
+            tool_output += f"\nCompilation {filepath}: {'OK' if not r2.returncode else r2.stderr[:200]}"
 
         elif langage in ["javascript", "typescript"]:
             r = subprocess.run(
                 ["node", "--check", filepath],
-                capture_output=True, text=True
+                capture_output=True, text=True, timeout=15,
             )
-            tool_output += f"\nNode check {filepath}:\n{r.stderr or 'OK'}"
+            tool_output += f"\nNode check {filepath}:\n{r.stderr[:500] or 'OK'}"
+
+    logger.debug("Static analysis ran on {} files ({})", len(files.split(",")), langage)
 
     result = _call_subagent(
         skill_name="nexus-static",

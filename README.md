@@ -1,7 +1,42 @@
-# Nexus-Debug v2 — Documentation Complète 🧬
+# Nexus-Debug v2.1 — Documentation Complète 🧬
 
 > Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)
-> Version 2.0.0 — 30 Mai 2026
+> Version **2.1.0** — 27 Mai 2026
+
+---
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11%20|%203.12-blue?style=flat&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License">
+  <img src="https://img.shields.io/badge/tests-38%20passing-brightgreen?style=flat" alt="Tests">
+  <img src="https://img.shields.io/badge/docker-ready-blue?style=flat&logo=docker" alt="Docker">
+  <img src="https://img.shields.io/badge/API-FastAPI-teal?style=flat&logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/agent-LangGraph-purple?style=flat" alt="LangGraph">
+  <img src="https://img.shields.io/badge/LLM-DeepSeek%20V4%20Pro-orange?style=flat" alt="DeepSeek">
+</p>
+
+## ⚡ Quick Start
+
+```bash
+# Option 1 : Docker (recommandé)
+docker compose up -d
+curl http://localhost:9001/health
+
+# Option 2 : Dev local
+pip install -e ".[dev]"
+make run
+```
+
+## 🏆 Qualité
+
+| Badge | Statut |
+|---|---|
+| ✅ 38 tests passants | `make test` |
+| 🧹 Ruff lint + format | `make lint` + `make format` |
+| 🔎 mypy type check | `make typecheck` |
+| 🐳 Docker build CI | `make docker-build` |
+| 🔐 API Key auth | Configurable via `.env` |
+| 📊 logs structurés | loguru avec rotation
 
 ---
 

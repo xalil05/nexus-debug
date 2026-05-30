@@ -2,12 +2,16 @@
 nexus_mcp_server.py — Serveur MCP pour Nexus-debug
 Expose 7 outils de diagnostic appelables par les agents.
 """
+
+from __future__ import annotations
+
 import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
+from loguru import logger
 from mcp.server import FastMCP
 
 from nexus_kb import kb_store, kb_search, kb_stats
@@ -28,14 +32,17 @@ def search_code(query: str, path: str = "") -> str:
         if r.returncode == 0:
             return r.stdout[:5000]
         return "Aucun résultat."
+    except subprocess.TimeoutExpired:
+        return json.dumps({"status": "error", "error": "Timeout (30s)"})
     except Exception as e:
-        return f"Erreur: {e}"
+        logger.warning("search_code error: {}", e)
+        return json.dumps({"status": "error", "error": str(e)})
 
 
 # ─── OUTIL 2 : sandbox_execute ────────────────────────────────────────────────
 @mcp.tool()
 def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> str:
-    """Exécute du code court dans un environnement isolé (Docker ou subprocess)."""
+    """Exécute du code court dans un environnement isolé."""
     try:
         if language == "python":
             r = subprocess.run(
@@ -55,6 +62,7 @@ def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> s
         else:
             return json.dumps({"status": "error", "error": f"Langage non supporté: {language}"})
 
+        logger.debug("sandbox_execute ({}) — exit {}", language, r.returncode)
         return json.dumps({
             "status": "success" if r.returncode == 0 else "error",
             "stdout": r.stdout[:2000],
@@ -64,6 +72,7 @@ def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> s
     except subprocess.TimeoutExpired:
         return json.dumps({"status": "error", "error": "Timeout dépassé"})
     except Exception as e:
+        logger.warning("sandbox_execute error: {}", e)
         return json.dumps({"status": "error", "error": str(e)})
 
 
@@ -103,7 +112,7 @@ def git_blame(file: str, line: int = 0) -> str:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
             return r.stdout[:500]
-        return f"Erreur git blame: {r.stderr}"
+        return f"Erreur git blame: {r.stderr[:200]}"
     except Exception as e:
         return f"Erreur: {e}"
 
@@ -119,7 +128,7 @@ def kb_search_tool(query: str) -> str:
 @mcp.tool()
 def kb_store_tool(
     bug_id: str, category: str, summary: str,
-    root_cause: str, solution: str
+    root_cause: str, solution: str,
 ) -> str:
     """Stocke un bug résolu dans la base de connaissance."""
     return json.dumps(kb_store(
@@ -140,4 +149,7 @@ def get_sentry_event(event_id: str) -> str:
 
 
 if __name__ == "__main__":
+    logger.remove()
+    logger.add(lambda msg: print(msg, end=""), level="INFO")
+    logger.info("Nexus-debug MCP server starting...")
     mcp.run()

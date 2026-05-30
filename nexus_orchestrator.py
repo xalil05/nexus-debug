@@ -2,6 +2,9 @@
 nexus_orchestrator.py — Orchestrateur automatisé de la cellule Nexus
 Remplace la pipeline fixe par une agentique
 """
+
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -10,6 +13,8 @@ import tempfile
 import subprocess
 from pathlib import Path
 from datetime import datetime
+
+from loguru import logger
 
 
 NEXUS_SKILLS_DIR = os.path.expanduser("~/.hermes/skills/agency")
@@ -38,7 +43,12 @@ def run_hermes_skill(skill_name: str, input_text: str, timeout: int = 300) -> st
             timeout=timeout,
             env={**os.environ, "NO_COLOR": "1"},
         )
-        return proc.stdout.strip() or proc.stderr.strip()
+        output = proc.stdout.strip() or proc.stderr.strip()
+        logger.debug("Hermes skill '{}' returned {} chars", skill_name, len(output))
+        return output
+    except subprocess.TimeoutExpired:
+        logger.warning("Hermes skill '{}' timed out ({}s)", skill_name, timeout)
+        return f"TIMEOUT après {timeout}s"
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -46,22 +56,23 @@ def run_hermes_skill(skill_name: str, input_text: str, timeout: int = 300) -> st
 
 async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
     """
-    Orchestre la résolution d'un bug via Nexus's agentique.
+    Orchestre la résolution d'un bug via Nexus agentique.
     1. Vérifie la KB pour pattern similaire
     2. Lance l'agent Nexus (ReAct) si pas en cache
     3. Sauvegarde le rapport
     """
     if not mission_id:
-        from datetime import datetime
         mission_id = f"XAL-{datetime.now().strftime('%Y%m%d')}-{os.urandom(2).hex()}"
+
+    logger.info("Orchestrateur: mission {} — vérification KB", mission_id)
 
     # Étape 1 : Vérification KB
     from nexus_kb import kb_search
     kb_result = kb_search(brief, max_results=3)
 
     if kb_result["count"] > 0 and kb_result["results"][0].get("confidence", 0) > 0.8:
-        # Bug déjà résolu — proposer la solution en cache
         cached = kb_result["results"][0]
+        logger.info("KB cache HIT — mission {} résolue depuis cache", mission_id)
         return {
             "mission_id": mission_id,
             "status": "cached",
@@ -73,6 +84,8 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
             "needs_human": False,
         }
 
+    logger.info("KB cache MISS — lancement agent Nexus pour {}", mission_id)
+
     # Étape 2 : Lancement de l'agent Nexus
     from nexus_agent import nexus_run
     result = await nexus_run(brief, mission_id=mission_id)
@@ -80,14 +93,18 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
     # Étape 3 : Stockage dans KB si fix réussi
     if result.get("status") in ("fixed", "done"):
         from nexus_kb import kb_store
-        kb_store(
-            bug_id=f"BUG-{mission_id[-8:]}",
-            category=result.get("bug_category", "unknown"),
-            summary=result.get("fix_summary", "") or result.get("summary", ""),
-            root_cause=result.get("root_cause", ""),
-            solution=result.get("fix_summary", "") or str(result.get("files_modified", [])),
-            langage=result.get("langage", ""),
-        )
+        try:
+            kb_store(
+                bug_id=f"BUG-{mission_id[-8:]}",
+                category=result.get("bug_category", "unknown"),
+                summary=result.get("fix_summary", "") or result.get("summary", ""),
+                root_cause=result.get("root_cause", ""),
+                solution=result.get("fix_summary", "") or str(result.get("files_modified", [])),
+                langage=result.get("langage", ""),
+            )
+            logger.info("KB mise à jour avec BUG-{}", mission_id[-8:])
+        except Exception as exc:
+            logger.warning("KB store failed: {}", exc)
 
     # Étape 4 : Sauvegarde du rapport
     report = {
@@ -100,12 +117,15 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
+    logger.info("Mission {} terminée — rapport: {}", mission_id, report_path)
     return result
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    brief_test = sys.argv[1] if len(sys.argv) > 1 else "Bug test"
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
 
+    brief_test = sys.argv[1] if len(sys.argv) > 1 else "Bug test"
     result = asyncio.run(orchestrer_nexus(brief_test))
     print(json.dumps(result, indent=2, ensure_ascii=False))

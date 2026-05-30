@@ -2,18 +2,24 @@
 nexus_kb.py — Base de connaissance YAML pour Nexus-debug
 Permet de stocker et rechercher les patterns de bugs résolus.
 """
+
+from __future__ import annotations
+
 import os
 import yaml
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
+
+from loguru import logger
+
 
 def get_kb_path() -> Path:
-    """Retourne le chemin de la base de connaissance (lit la variable d'env à chaque appel)."""
+    """Retourne le chemin de la base de connaissance."""
     return Path(os.getenv("NEXUS_KB_PATH", os.path.expanduser("~/nexus_kb.yaml")))
 
 
-def _load_kb() -> dict:
+def _load_kb() -> dict[str, Any]:
     """Charge la base de connaissance YAML."""
     path = get_kb_path()
     if not path.exists():
@@ -26,11 +32,12 @@ def _load_kb() -> dict:
             data.setdefault("bugs", [])
             data.setdefault("patterns", [])
             return data
-    except Exception:
+    except Exception as exc:
+        logger.warning("Erreur lecture KB: {}", exc)
         return {"bugs": [], "patterns": [], "version": 2}
 
 
-def _save_kb(data: dict) -> None:
+def _save_kb(data: dict[str, Any]) -> None:
     """Sauvegarde la base de connaissance YAML."""
     path = get_kb_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,7 +54,7 @@ def kb_store(
     langage: str = "",
     keywords: Optional[list[str]] = None,
     severity: str = "medium",
-) -> dict:
+) -> dict[str, Any]:
     """Stocke un bug résolu dans la base de connaissance."""
     data = _load_kb()
     entry = {
@@ -63,7 +70,6 @@ def kb_store(
     }
     data["bugs"].append(entry)
 
-    # Extraire et indexer le pattern
     pattern = {
         "pattern_id": f"PTN-{len(data['patterns']) + 1:04d}",
         "keywords": keywords or [],
@@ -75,29 +81,27 @@ def kb_store(
     data["patterns"].append(pattern)
     _save_kb(data)
 
+    logger.debug("KB stored: {} (pattern {})", bug_id, pattern["pattern_id"])
     return {"status": "stored", "bug_id": bug_id, "pattern_id": pattern["pattern_id"]}
 
 
-def kb_search(query: str, max_results: int = 5) -> dict:
+def kb_search(query: str, max_results: int = 5) -> dict[str, Any]:
     """Recherche dans la base de connaissance par mots-clés."""
     data = _load_kb()
     query_lower = query.lower()
     query_words = set(query_lower.split())
 
-    results = []
+    results: list[dict[str, Any]] = []
     for bug in data.get("bugs", []):
         score = 0
-        # Score basé sur les mots-clés
         bug_keywords = set(k.lower() for k in bug.get("keywords", []))
         score += len(query_words & bug_keywords) * 2
 
-        # Score basé sur le résumé
         summary_lower = bug.get("summary", "").lower()
         for w in query_words:
             if w in summary_lower:
                 score += 1
 
-        # Score basé sur la cause racine
         cause_lower = bug.get("root_cause", "").lower()
         for w in query_words:
             if w in cause_lower:
@@ -116,13 +120,13 @@ def kb_search(query: str, max_results: int = 5) -> dict:
     }
 
 
-def kb_stats() -> dict:
+def kb_stats() -> dict[str, Any]:
     """Statistiques de la base de connaissance."""
     data = _load_kb()
     bugs = data.get("bugs", [])
     patterns = data.get("patterns", [])
 
-    categories = {}
+    categories: dict[str, int] = {}
     for bug in bugs:
         cat = bug.get("category", "other")
         categories[cat] = categories.get(cat, 0) + 1

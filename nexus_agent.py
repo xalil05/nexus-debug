@@ -3,10 +3,13 @@ nexus_agent.py — Nexus comme agent ReAct avec LangGraph
 Switché de Anthropic → DeepSeek V4 Pro (OpenAI-compatible)
 Nexus raisonne librement, choisit ses outils, boucle jusqu'à résolution.
 """
+
+from __future__ import annotations
+
 import json
 import os
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AnyMessage
@@ -14,6 +17,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from langgraph.checkpoint.memory import MemorySaver
+from loguru import logger
 from pydantic import BaseModel
 
 from nexus_tools import NEXUS_TOOLS
@@ -80,8 +84,11 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 NEXUS_MODEL = os.getenv("NEXUS_MODEL", "deepseek-chat")
 
+if not DEEPSEEK_API_KEY:
+    logger.warning("DEEPSEEK_API_KEY non définie — l'agent échouera au runtime")
 
-def _get_llm():
+
+def _get_llm() -> ChatOpenAI:
     """Crée le LLM DeepSeek V4 Pro avec les outils liés."""
     return ChatOpenAI(
         model=NEXUS_MODEL,
@@ -93,7 +100,7 @@ def _get_llm():
 
 
 # ─── Construction de l'agent ──────────────────────────────────────────────────
-def build_nexus_agent(memory_path: str = None):
+def build_nexus_agent(memory_path: str | None = None) -> StateGraph:
     """
     Construit l'agent agentique Nexus avec LangGraph.
     Utilise le pattern ReAct : Reason -> Act -> Observe -> Repeat.
@@ -104,7 +111,7 @@ def build_nexus_agent(memory_path: str = None):
     tool_node = ToolNode(NEXUS_TOOLS)
 
     # ── Nœud principal : Nexus raisonne ─────────────────────────────────────
-    def nexus_node(state: NexusAgentState) -> NexusAgentState:
+    def nexus_node(state: NexusAgentState) -> dict[str, Any]:
         messages = [SystemMessage(content=NEXUS_SYSTEM_PROMPT)] + state.messages
         response = llm.invoke(messages)
         return {"messages": [response]}
@@ -170,10 +177,8 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
     config = {"configurable": {"thread_id": mission_id}}
 
     # Exécution avec streaming pour observer le raisonnement en temps réel
-    final_state = None
-    print(f"\n{'='*60}")
-    print(f"Nexus-debug — Mission {mission_id}")
-    print(f"{'='*60}\n")
+    final_state: dict[str, Any] | None = None
+    logger.info("Mission {} — lancement agent ReAct", mission_id)
 
     async for event in agent.astream(initial_state, config):
         for node_name, node_output in event.items():
@@ -181,14 +186,16 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
                 msgs = node_output.get("messages", [])
                 for msg in msgs:
                     if hasattr(msg, "content") and msg.content:
-                        print(f"[Nexus] {str(msg.content)[:200]}...")
+                        content = str(msg.content)[:200]
+                        if content.strip():
+                            logger.debug("[Nexus] {}", content)
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
-                            print(f"  → Appel : {tc['name']}")
+                            logger.info("  → {} ({})", tc["name"], tc.get("id", ""))
             elif node_name == "tools":
                 msgs = node_output.get("messages", [])
                 for msg in msgs:
-                    print(f"  ← Résultat : {str(msg.content)[:100]}...")
+                    logger.debug("  ← {}...", str(msg.content)[:100])
         final_state = node_output
 
     # Extraction du résultat final depuis le dernier message
@@ -213,6 +220,9 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
 if __name__ == "__main__":
     import asyncio
     import sys
+
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
 
     brief_test = sys.argv[1] if len(sys.argv) > 1 else """
     PROJET   : test-app

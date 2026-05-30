@@ -1,9 +1,13 @@
 """
 orchestrateur_integration.py — Comment Orchestrateur appelle Nexus agentique
 """
+
+from __future__ import annotations
+
 import asyncio
 import json
 from nexus_agent import nexus_run
+from loguru import logger
 
 
 async def orchestrateur_delegate_to_nexus(
@@ -39,6 +43,8 @@ STACK TRACE :
     print(f"\n[Orchestrateur] Délégation à Nexus-debug...")
     print(f"[Orchestrateur] Priorité : {priority}")
 
+    logger.info("Délégation à Nexus — priorité {}", priority)
+
     # Appel agentique — Nexus fait le reste
     result = await nexus_run(
         brief=mission_brief,
@@ -64,6 +70,7 @@ Outils    : {', '.join(result.get('tools_used', []))}
     """.strip()
 
     print(f"\n[Orchestrateur] Rapport de débogage :\n{summary}")
+    logger.info("Rapport de débogage reçu — statut: {}", result.get("status", "?"))
     return result
 
 
