@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.1 (2026-05-30) — Bugfix : KB cache, dead code, fragilités 🐛
+
+### 🐛 Bugs corrigés
+- **Dead code** dans `run_debug_task()` (nexus_api.py:266-270) — dict flottant inutile supprimé
+- **KB cache mort** dans `orchestrer_nexus()` (nexus_orchestrator.py:77) — utilisait `.get("confidence", 0)` qui retournait toujours 0. Corrigé : utilisation du `score` de `kb_search()` (seuil ≥ 3)
+
+### ⚠️ Fragilités renforcées
+- **Extraction JSON** (nexus_agent.py) : gère désormais les blocs ```json...``` et ```...``` en plus du JSON brut
+- **command.split()** (nexus_mcp_server.py) : remplacé par `shlex.split()` — supporte les chemins avec espaces
+- **Dockerfile** : `pip install "."` (prod uniquement) au lieu de `".[dev]"` — pytest/ruff/mypy ne sont plus dans l'image finale
+
 ## 2.2.0 (2026-05-30) — Monitoring Stack + Polish 🧹
 
 ### 📈 Monitoring

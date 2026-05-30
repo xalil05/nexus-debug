@@ -6,10 +6,10 @@ FROM python:3.11-slim AS builder
 WORKDIR /build
 COPY pyproject.toml .
 
-# Generate frozen requirements from pyproject.toml
+# Generate frozen requirements from pyproject.toml (production only — pas de pytest/ruff dans l'image)
 RUN pip install --no-cache-dir pip && \
-    pip install --no-cache-dir ".[dev]" && \
-    pip freeze --exclude-editable > /build/requirements-frozen.txt
+    pip install --no-cache-dir "." && \
+    pip freeze | grep -v nexus-debug > /build/requirements-frozen.txt
 
 
 # ── Runtime ──────────────────────────────────────────────────────────────────

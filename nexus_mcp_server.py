@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 
 from loguru import logger
@@ -115,7 +116,7 @@ async def run_diagnostic(command: str, workdir: str = "") -> str:
     cwd = os.path.join(CODEBASE_PATH, workdir) if workdir else CODEBASE_PATH
     try:
         r = await async_run_mcp_subprocess(
-            command.split(),
+            shlex.split(command),
             timeout=120,
             cwd=cwd,
         )

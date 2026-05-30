@@ -263,11 +263,6 @@ async def run_debug_task(
         result = await nexus_run(brief, mission_id=f"DBG-{task_id}")
         result_status = result.get("status", "unknown")
 
-        {
-            "status": result_status,
-            "result": result,
-            "completed_at": datetime.utcnow().isoformat(),
-        }
         await db.save_task(
             task_id,
             {

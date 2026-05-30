@@ -204,14 +204,27 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
         last_msgs = final_state.get("messages", [])
         if last_msgs:
             last_content = last_msgs[-1].content
-            try:
-                if isinstance(last_content, str):
-                    start = last_content.find("{")
-                    end = last_content.rfind("}") + 1
-                    if start >= 0 and end > start:
-                        return json.loads(last_content[start:end])
-            except json.JSONDecodeError:
-                pass
+            if isinstance(last_content, str):
+                import re
+                # D'abord tenter extraction directe
+                start = last_content.find("{")
+                if start >= 0:
+                    # Vérifier si le JSON est dans un bloc ```json ... ``` ou ``` ... ```
+                    json_block = re.search(
+                        r"```(?:json)?\s*\n?(\{.*?\})\s*\n?```",
+                        last_content,
+                        re.DOTALL,
+                    )
+                    if json_block:
+                        raw = json_block.group(1)
+                    else:
+                        end = last_content.rfind("}") + 1
+                        raw = last_content[start:end]
+                    try:
+                        return json.loads(raw)
+                    except json.JSONDecodeError:
+                        logger.warning("JSON extraction failed, falling back to raw output")
+            # Fallback
             return {"status": "done", "raw_output": str(last_content)[:500]}
 
     return {"status": "error", "mission_id": mission_id}

@@ -74,19 +74,22 @@ async def orchestrer_nexus(brief: str, mission_id: str = "") -> dict:
 
     kb_result = kb_search(brief, max_results=3)
 
-    if kb_result["count"] > 0 and kb_result["results"][0].get("confidence", 0) > 0.8:
-        cached = kb_result["results"][0]
-        logger.info("KB cache HIT — mission {} résolue depuis cache", mission_id)
-        return {
-            "mission_id": mission_id,
-            "status": "cached",
-            "summary": f"Bug similaire déjà résolu: {cached.get('summary', '')}",
-            "solution": cached.get("solution", ""),
-            "kb_reference": cached.get("bug_id", ""),
-            "root_cause": cached.get("root_cause", ""),
-            "tools_used": ["kb_search"],
-            "needs_human": False,
-        }
+    if kb_result["count"] > 0:
+        best = kb_result["results"][0]
+        score = best.get("score", 0)
+        if score >= 3:
+            cached = best["bug"]
+            logger.info("KB cache HIT (score={}) — mission {} résolue depuis cache", score, mission_id)
+            return {
+                "mission_id": mission_id,
+                "status": "cached",
+                "summary": f"Bug similaire déjà résolu: {cached.get('summary', '')}",
+                "solution": cached.get("solution", ""),
+                "kb_reference": cached.get("bug_id", ""),
+                "root_cause": cached.get("root_cause", ""),
+                "tools_used": ["kb_search"],
+                "needs_human": False,
+            }
 
     logger.info("KB cache MISS — lancement agent Nexus pour {}", mission_id)
 
