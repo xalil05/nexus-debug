@@ -35,6 +35,32 @@ from prometheus_client import Counter, Histogram, generate_latest, REGISTRY, CON
 from nexus_agent import nexus_run
 from nexus_kb import kb_store, kb_search, kb_stats
 
+
+# ── DeepSeek healthcheck ──────────────────────────────
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+
+
+async def check_deepseek_health() -> dict:
+    """Vérifie que l'API DeepSeek est joignable."""
+    if not DEEPSEEK_API_KEY:
+        return {"status": "not_configured", "error": "DEEPSEEK_API_KEY manquante"}
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                f"{DEEPSEEK_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
+            )
+            if resp.status_code == 200:
+                models = resp.json().get("data", [])
+                available = [m["id"] for m in models[:5]]
+                return {"status": "ok", "models_available": available}
+            return {"status": "error", "http_status": resp.status_code, "detail": resp.text[:200]}
+    except httpx.TimeoutException:
+        return {"status": "error", "error": "timeout (5s)"}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)[:200]}
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 API_PORT = int(os.getenv("NEXUS_API_PORT", "9001"))
 API_HOST = os.getenv("NEXUS_API_HOST", "0.0.0.0")
@@ -355,11 +381,13 @@ async def metrics() -> PlainTextResponse:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
+    deepseek = await check_deepseek_health()
     return {
         "status": "ok",
         "version": "2.1.0",
         "service": "nexus-debug",
         "db_connected": db._conn is not None,
+        "deepseek": deepseek,
         "github_webhook": bool(GITHUB_SECRET),
         "slack_webhook": bool(SLACK_WEBHOOK_URL),
         "api_key_configured": bool(API_KEY),

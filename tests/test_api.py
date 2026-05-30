@@ -32,7 +32,7 @@ async def test_health_structure() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
         data = resp.json()
-        required_keys = {"status", "version", "service", "db_connected", "api_key_configured", "timestamp", "metrics_enabled"}
+        required_keys = {"status", "version", "service", "db_connected", "deepseek", "api_key_configured", "timestamp", "metrics_enabled"}
         assert required_keys.issubset(data.keys()), f"Missing keys: {required_keys - data.keys()}"
 
 
