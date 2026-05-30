@@ -1,7 +1,7 @@
-# Nexus-Debug v2.1 — Documentation Complète 🧬
+# Nexus-Debug v2.2 — Documentation Complète 🧬
 
 > Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)
-> Version **2.1.0** — 27 Mai 2026
+> Version **2.2.0** — 30 Mai 2026
 
 ---
 
@@ -38,6 +38,8 @@ make run
 | 🐳 Docker build CI | `make docker-build` |
 | 🔐 API Key auth | Configurable via `.env` |
 | 📊 logs structurés | loguru avec rotation
+| 💾 backup/restore | `bash scripts/nexus-backup.sh`
+| 🚀 deploy | `bash scripts/deploy.sh`
 |
 | ## 📊 Monitoring
 
@@ -192,7 +194,7 @@ make run
 
 ```bash
 # Depuis GitHub
-git clone https://github.com/nexus05/nexus-debug.git
+git clone https://github.com/xalil05/nexus-debug.git
 cd nexus-debug
 
 # Ou depuis le répertoire local
@@ -467,26 +469,48 @@ python -m pytest tests/ -v
 ### 9.2 Résultat attendu
 
 ```
-collected 17 items
+collected 39 items
 
-test_improve.py::test_analyze_feedback_empty      ✅
-test_improve.py::test_analyze_feedback_with_data   ✅
-test_improve.py::test_analyze_kb_empty             ✅
-test_improve.py::test_analyze_kb_with_data         ✅
-test_kb.py::test_kb_store                          ✅
-test_kb.py::test_kb_search                         ✅
-test_kb.py::test_kb_search_no_results              ✅
-test_kb.py::test_kb_stats_empty                    ✅
-test_kb.py::test_kb_multiple_entries               ✅
-test_api.py::test_health                           ✅
-test_api.py::test_debug_invalid                    ✅
-test_api.py::test_status_not_found                 ✅
-test_api.py::test_kb_stats                         ✅
-test_tools.py::test_tools_count                    ✅
-test_tools.py::test_tools_names                    ✅
-test_tools.py::test_tool_triage_called             ✅
-test_tools.py::test_tool_fix_bug_file_not_found   ✅
-========================= 17 passed in 4.22s =====================
+test_improve.py::test_analyze_feedback_empty            ✅
+test_improve.py::test_analyze_feedback_with_data         ✅
+test_improve.py::test_analyze_kb_empty                   ✅
+test_improve.py::test_analyze_kb_with_data               ✅
+test_kb.py::test_kb_store                                ✅
+test_kb.py::test_kb_search                               ✅
+test_kb.py::test_kb_search_no_results                    ✅
+test_kb.py::test_kb_stats_empty                          ✅
+test_kb.py::test_kb_multiple_entries                     ✅
+test_api.py::test_health                                  ✅
+test_api.py::test_health_structure                        ✅
+test_api.py::test_metrics_endpoint                        ✅
+test_api.py::test_debug_invalid_empty_body                ✅
+test_api.py::test_debug_invalid_priority                  ✅
+test_api.py::test_debug_valid_submission                  ✅
+test_api.py::test_status_not_found                        ✅
+test_api.py::test_report_not_found                        ✅
+test_api.py::test_kb_stats                                ✅
+test_api.py::test_kb_search_empty                         ✅
+test_api.py::test_kb_search_with_query                    ✅
+test_api.py::test_tasks_list                              ✅
+test_api.py::test_github_webhook_ping                     ✅
+test_api.py::test_github_webhook_ignored_non_bug          ✅
+test_api.py::test_github_webhook_bug_accepted             ✅
+test_api.py::test_jira_webhook_ignored_non_bug            ✅
+test_api.py::test_jira_webhook_bug_accepted               ✅
+test_tools.py::test_tools_count                           ✅
+test_tools.py::test_tools_names                           ✅
+test_tools.py::test_tools_all_have_descriptions           ✅
+test_tools.py::test_tool_triage_returns_valid_json        ✅
+test_tools.py::test_tool_triage_classifies_null_reference ✅
+test_tools.py::test_tool_triage_p0_detected               ✅
+test_tools.py::test_tool_fix_bug_file_not_found           ✅
+test_tools.py::test_tool_static_analysis_valid_json       ✅
+test_tools.py::test_tool_runtime_debug_valid_json         ✅
+test_tools.py::test_tool_security_scan_valid_json         ✅
+test_tools.py::test_tool_perf_analysis_valid_json         ✅
+test_tools.py::test_tool_generate_tests_valid_json        ✅
+test_tools.py::test_tool_write_postmortem_valid_json      ✅
+========================= 39 passed in 6.34s =====================
 ```
 
 ---

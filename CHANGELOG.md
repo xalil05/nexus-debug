@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.0 (2026-05-30) — Monitoring Stack 📊
+## 2.2.0 (2026-05-30) — Monitoring Stack + Polish 🧹
 
 ### 📈 Monitoring
 - Prometheus service avec scrape config (scrape nexus:9001/metrics toutes les 10s)
@@ -9,10 +9,20 @@
 - Accès : Grafana http://localhost:3000 — `admin / nexus2026`
 - Rétention Prometheus : 30 jours
 
-### 📖 Documentation
-- Badge CI workflow dans README
-- Section Monitoring dans README (tableau des services)
-- Architecture projet : docker/prometheus/ + docker/grafana/
+### 🔧 Corrections README
+- Version 2.1.0 → 2.2.0 + date 27 Mai → 30 Mai
+- URL clone : nexus05 → xalil05
+- Résultat tests : 17 → 39 noms réels
+- Ajout section scripts (backup/restore/deploy)
+
+### 🐳 Scripts
+- `scripts/deploy.sh` : déploiement one-command (vérification prérequis, .env, build, attente health)
+- `scripts/nexus-backup.sh` : backup volumes Docker (kb, db, prometheus, grafana, configs)
+- `scripts/nexus-restore.sh` : restauration depuis un backup
+
+### 🧪 Qualité
+- pytest-timeout (30s) dans pyproject.toml — les tests timeout proprement sans clé API
+- `pytest-timeout>=2.3` dans dépendances dev et test
 
 ## 2.1.0 (2026-05-27) — Refonte Pro
 
