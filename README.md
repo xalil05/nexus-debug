@@ -12,7 +12,8 @@
   <img src="https://img.shields.io/badge/docker-ready-blue?style=flat&logo=docker" alt="Docker">
   <img src="https://img.shields.io/badge/API-FastAPI-teal?style=flat&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/agent-LangGraph-purple?style=flat" alt="LangGraph">
-  <img src="https://img.shields.io/badge/LLM-DeepSeek%20V4%20Pro-orange?style=flat" alt="DeepSeek">
+  <img src="https://img.shields.io/badge/LLM-DeepSeek%20V4%20Pro-orange?style=flat&logo=deepseek" alt="DeepSeek">
+  <img src="https://github.com/xalil05/nexus-debug/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
 </p>
 
 ## ⚡ Quick Start
