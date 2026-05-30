@@ -22,7 +22,7 @@ async def test_health() -> None:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["service"] == "nexus-debug"
-        assert data["version"] == "2.1.0"
+        assert data["version"] == "2.2.1"
         assert "timestamp" in data
 
 
