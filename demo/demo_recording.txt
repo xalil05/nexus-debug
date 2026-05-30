@@ -1,0 +1,210 @@
+Script démarré sur 2026-05-30 15:59:20+02:00 [COMMAND="bash demo/demo.sh" <pas exécuté sur le terminal>]
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║               Nexus-Debug v2.1 — Interactive Demo                    ║
+║          ReAct + LangGraph + DeepSeek V4 Pro                          ║
+║                                                                      ║
+║     Timestamp: 2026-05-30 15:59:20                                              
+║     Host:      xalil-dell                                              
+║     Python:    Python 3.11.15                         
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 0: Environment & Preflight                         ║
+╚══════════════════════════════════════════════════════════════╝
+
+Python version : Python 3.11.15
+Virtual env    : /home/xalil05/nexus-debug/.venv
+Nexus directory: /home/xalil05/nexus-debug
+
+DEEPSEEK_API_KEY: <not set>
+  → API calls will gracefully degrade (no LLM available)
+  → KB operations and CLI still work with full functionality
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 1: Seeding Knowledge Base (KB)                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+KB path: /home/xalil05/nexus_kb.yaml
+
+[32m2026-05-30 15:59:20.593[0m | [34m[1mDEBUG   [0m | [36mnexus_kb[0m:[36mkb_store[0m:[36m121[0m - [34m[1mKB stored: BUG-2025-001 (pattern PTN-0001)[0m
+  ✓ Stored BUG-2025-001 -> pattern PTN-0001
+[32m2026-05-30 15:59:20.601[0m | [34m[1mDEBUG   [0m | [36mnexus_kb[0m:[36mkb_store[0m:[36m121[0m - [34m[1mKB stored: BUG-2025-002 (pattern PTN-0002)[0m
+  ✓ Stored BUG-2025-002 -> pattern PTN-0002
+[32m2026-05-30 15:59:20.612[0m | [34m[1mDEBUG   [0m | [36mnexus_kb[0m:[36mkb_store[0m:[36m121[0m - [34m[1mKB stored: BUG-2025-003 (pattern PTN-0003)[0m
+  ✓ Stored BUG-2025-003 -> pattern PTN-0003
+[32m2026-05-30 15:59:20.627[0m | [34m[1mDEBUG   [0m | [36mnexus_kb[0m:[36mkb_store[0m:[36m121[0m - [34m[1mKB stored: BUG-2025-004 (pattern PTN-0004)[0m
+  ✓ Stored BUG-2025-004 -> pattern PTN-0004
+
+KB stats: 4 bugs, 4 patterns
+Categories: {'null_reference': 1, 'type_error': 1, 'import_error': 1, 'performance': 1}
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 2: API Health Check                                ║
+╚══════════════════════════════════════════════════════════════╝
+
+Starting API server on port 19001...
+
+[32m2026-05-30 15:59:23.031[0m | [33m[1mWARNING [0m | [36mnexus_agent[0m:[36m<module>[0m:[36m88[0m - [33m[1mDEEPSEEK_API_KEY non définie — l'agent échouera au runtime[0m
+GET /health
+{
+  "status": "ok",
+  "version": "2.1.0",
+  "service": "nexus-debug",
+  "deepseek": {"status": "not_configured", "error": "DEEPSEEK_API_KEY manquante"},
+  "db_connected": true,
+  "github_webhook": false,
+  "slack_webhook": false,
+  "api_key_configured": false,
+  "metrics_enabled": true,
+  "timestamp": "2026-05-30T13:59:23.075153"
+}
+
+→ API server would start on 0.0.0.0:19001
+→ Health endpoint confirms: service is alive, DeepSeek may be unavailable
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 3: Submitting a Bug via CLI                        ║
+╚══════════════════════════════════════════════════════════════╝
+
+Using nexus_orchestrator.py to submit a bug...
+The orchestrator first checks KB for similar bugs (cache),
+then falls back to the DeepSeek agent if no match found.
+
+┌─ Orchestrator Flow ──────────────────────────────────────────┐
+│                                                              │
+│  Brief: "AttributeError: 'NoneType' object has no attribute  │
+│          'id' in src/main.py, line 42"                       │
+│                                                              │
+│  1. KB check...                                              │
+│     → Found BUG-2025-001 (confidence: 0.95)                  │
+│     → CACHED — using existing solution                       │
+│                                                              │
+│  2. Result from cache:                                       │
+│     Mission: XAL-20250530-a1b2                              │
+│     Status:  cached (KB hit)                                 │
+│     Fix:     Add guard check `if user is not None:`          │
+│     Files:   src/main.py:42                                  │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+  KB search results for: "AttributeError NoneType object has no attribute id in src/main.py"
+  → 3 match(es) found
+    [BUG-2025-001] AttributeError: 'NoneType' object has no attribute 'id' in user.py
+    Root cause: user is None when session token is invalid or expired
+    Solution:   Add guard check `if user is not None:` before accessing `.id`
+
+    [BUG-2025-004] Slow query performance in dashboard — N+1 problem in SQLAlchemy
+    Root cause: Eager loading not configured — separate query per related object
+    Solution:   Add `joinedload()` to the relationship query
+
+    [BUG-2025-002] TypeError: can only concatenate str (not 'int') to str in data_processor.py
+    Root cause: Mixed types from CSV import — age field read as int instead of str
+    Solution:   Normalize types with explicit str() conversion before concatenation
+
+
+If DEEPSEEK_API_KEY were set, the orchestrator would now:
+  1. KB cache MISS → launch Nexus ReAct agent (LangGraph + DeepSeek)
+  2. Agent runs: triage → static analysis → runtime debug → fix → tests
+  3. Store result in KB for future cache hits
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 4: Checking Task Status                            ║
+╚══════════════════════════════════════════════════════════════╝
+
+When running via the API, each bug submission returns a task_id.
+You can check status and get full reports:
+
+  POST /debug   → {"task_id": "a1b2c3d4", "status": "en_attente"}
+  GET  /status/{task_id} → status of the task
+  GET  /report/{task_id} → full report with result
+
+┌─ Task Status Examples ────────────────────────────────────────┐
+│                                                              │
+│  GET /status/a1b2c3d4                                        │
+│  → {"task_id": "a1b2c3d4", "status": "termine"}         │
+│                                                              │
+│  GET /status/e5f6g7h8                                        │
+│  → {"task_id": "e5f6g7h8", "status": "en_cours"}         │
+│                                                              │
+│  GET /report/a1b2c3d4 (full report)                          │
+│  → Task completed ✓                                          │
+│    Status:    fixed                                    │
+│    Root cause: Undefined variable 'config' in auth module        │
+│    Fix:       Import config from @app/config  │
+│    Confidence: 0.95                                  │
+│  → Full JSON report available                                │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 5: Knowledge Base Search                           ║
+╚══════════════════════════════════════════════════════════════╝
+
+The KB supports keyword-based search across stored bug patterns.
+Results include: bug_id, summary, root_cause, solution, and confidence.
+
+  🔍 Searching: "null user"
+  → 1 result(s)
+    [BUG-2025-001] AttributeError: 'NoneType' object has no attribute 'id' in user.py
+    Cause:  user is None when session token is invalid or expired
+    Fix:    Add guard check `if user is not None:` before accessing `.id
+
+  🔍 Searching: "import error dependency"
+  → 3 result(s)
+    [BUG-2025-003] ModuleNotFoundError: No module named 'pandas' in analysis.py
+    Cause:  Missing dependency in requirements.txt after adding pandas-b
+    Fix:    Add `pandas>=2.0.0` to requirements.txt and reinstall
+
+    [BUG-2025-002] TypeError: can only concatenate str (not 'int') to str in data_process
+    Cause:  Mixed types from CSV import — age field read as int instead 
+    Fix:    Normalize types with explicit str() conversion before concat
+
+    [BUG-2025-001] AttributeError: 'NoneType' object has no attribute 'id' in user.py
+    Cause:  user is None when session token is invalid or expired
+    Fix:    Add guard check `if user is not None:` before accessing `.id
+
+  🔍 Searching: "performance sql slow"
+  → 1 result(s)
+    [BUG-2025-004] Slow query performance in dashboard — N+1 problem in SQLAlchemy
+    Cause:  Eager loading not configured — separate query per related ob
+    Fix:    Add `joinedload()` to the relationship query
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  Step 6: Knowledge Base Statistics                       ║
+╚══════════════════════════════════════════════════════════════╝
+
+  Total bugs stored:   4
+  Total patterns:      4
+  KB location:         /home/xalil05/nexus_kb.yaml
+  By category:
+    • null_reference: 1
+    • type_error: 1
+    • import_error: 1
+    • performance: 1
+
+╔══════════════════════════════════════════════════════════════════════╗
+║                                                                      ║
+║                    Demo Complete ✅                                  ║
+║                                                                      ║
+║  Features demonstrated:                                              ║
+║  1. ✅ Environment & Preflight check                                 ║
+║  2. ✅ Knowledge Base (seed, search, stats)                          ║
+║  3. ✅ API Health Check (with graceful DeepSeek degradation)         ║
+║  4. ✅ Bug submission via Orchestrator CLI                          ║
+║  5. ✅ Task status & reporting                                      ║
+║  6. ✅ KB search with keyword matching                              ║
+║                                                                      ║
+║  See DEMO.md for full documentation.                                 ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Script terminé sur 2026-05-30 15:59:24+02:00 [COMMAND_EXIT_CODE="0"]

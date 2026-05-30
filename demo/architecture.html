@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Nexus-Debug v2.1 — Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #020617; color: #cbd5e1; font-family: 'JetBrains Mono', monospace; padding: 40px; }
+  h1 { color: #22d3ee; font-size: 28px; margin-bottom: 8px; }
+  .subtitle { color: #64748b; font-size: 12px; margin-bottom: 40px; }
+  svg { display: block; margin: 0 auto; border-radius: 12px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1100px; margin: 30px auto 0; }
+  .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 20px; }
+  .card h3 { color: #22d3ee; font-size: 13px; margin-bottom: 12px; letter-spacing: 0.5px; }
+  .card ul { list-style: none; font-size: 11px; }
+  .card li { color: #94a3b8; padding: 4px 0; }
+  .card li::before { content: "▸ "; color: #34d399; }
+</style>
+</head>
+<body>
+<h1>🧬 Nexus-Debug v2.1</h1>
+<p class="subtitle">Système agentique de débogage · ReAct + LangGraph + DeepSeek V4 Pro</p>
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 750" width="1100" height="750">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#22d3ee"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 Z" fill="#34d399"/>
+    </marker>
+  </defs>
+
+  <!-- Grid Background -->
+  <rect width="1100" height="750" fill="url(#grid)"/>
+
+  <!-- Zone: External World -->
+  <rect x="30" y="30" width="1040" height="690" rx="16" fill="rgba(30,41,59,0.15)" stroke="#475569" stroke-width="1.5" stroke-dasharray="8,4"/>
+  <text x="50" y="55" fill="#64748b" font-size="9" font-weight="400">Client / CI</text>
+
+  <!-- Arrows: External → API -->
+  <line x1="180" y1="80" x2="300" y2="80" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Box: API REST -->
+  <rect x="300" y="50" width="240" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="420" y="78" text-anchor="middle" fill="#22d3ee" font-size="12" font-weight="600">API REST (port 9001)</text>
+  <text x="420" y="96" text-anchor="middle" fill="#64748b" font-size="8">FastAPI · Rate Limiting · API Key Auth</text>
+
+  <!-- Features under API -->
+  <text x="320" y="130" fill="#94a3b8" font-size="8">POST /debug · GET /status/{id} · GET /report/{id}</text>
+  <text x="320" y="145" fill="#94a3b8" font-size="8">GET /health · GET /metrics · POST /feedback</text>
+  <text x="320" y="160" fill="#94a3b8" font-size="8">GET /kb/search · GET /kb/stats · GET /tasks</text>
+  <text x="320" y="175" fill="#94a3b8" font-size="8">POST /webhook/github · POST /webhook/jira</text>
+
+  <!-- Arrow: API → Orchestrator -->
+  <line x1="420" y1="185" x2="420" y2="220" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+
+  <!-- Box: Orchestrator -->
+  <rect x="290" y="220" width="260" height="60" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="420" y="248" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">Orchestrateur</text>
+  <text x="420" y="265" text-anchor="middle" fill="#64748b" font-size="8">Cache KB · Délégation agent · Rapports</text>
+
+  <!-- Arrow: Orchestrator → KB -->
+  <line x1="290" y1="250" x2="180" y2="250" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="230" y="242" fill="#64748b" font-size="7" text-anchor="middle">Cache check</text>
+
+  <!-- Box: KB -->
+  <rect x="40" y="220" width="130" height="60" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+  <text x="105" y="248" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">KB YAML</text>
+  <text x="105" y="265" text-anchor="middle" fill="#64748b" font-size="8">Store · Search · Stats</text>
+
+  <!-- Arrow: Orchestrator → Agent -->
+  <line x1="420" y1="280" x2="420" y2="320" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Agent Box -->
+  <rect x="290" y="320" width="260" height="55" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+  <text x="420" y="345" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600">Agent ReAct</text>
+  <text x="420" y="362" text-anchor="middle" fill="#64748b" font-size="8">LangGraph · DeepSeek V4 Pro · 8 outils</text>
+
+  <!-- Arrow: Agent → Tools -->
+  <line x1="550" y1="347" x2="610" y2="347" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="580" y="340" fill="#64748b" font-size="7" text-anchor="middle">invoque</text>
+
+  <!-- 8 Tools -->
+  <g font-size="8" fill="#94a3b8">
+    <rect x="620" y="310" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="690" y="328" text-anchor="middle" fill="#fbbf24">🔄 tool_triage</text>
+    <rect x="620" y="342" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="690" y="360" text-anchor="middle" fill="#a78bfa">🔍 tool_static_analysis</text>
+    <rect x="620" y="374" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="690" y="392" text-anchor="middle" fill="#fb7185">🛡️ tool_security_scan</text>
+    <rect x="620" y="406" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="690" y="424" text-anchor="middle" fill="#22d3ee">⚡ tool_runtime_debug</text>
+    <rect x="770" y="310" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="840" y="328" text-anchor="middle" fill="#fb923c">📊 tool_perf_analysis</text>
+    <rect x="770" y="342" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="840" y="360" text-anchor="middle" fill="#34d399">🔧 tool_fix_bug</text>
+    <rect x="770" y="374" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="840" y="392" text-anchor="middle" fill="#fbbf24">🧪 tool_generate_tests</text>
+    <rect x="770" y="406" width="140" height="28" rx="4" fill="rgba(30,41,59,0.6)" stroke="#475569" stroke-width="1"/>
+    <text x="840" y="424" text-anchor="middle" fill="#a78bfa">📝 tool_write_postmortem</text>
+  </g>
+
+  <!-- Arrow: Agent → MCP -->
+  <line x1="420" y1="375" x2="420" y2="420" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Box: MCP -->
+  <rect x="290" y="420" width="260" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+  <text x="420" y="442" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">MCP Server</text>
+  <text x="420" y="458" text-anchor="middle" fill="#64748b" font-size="8">7 outils · FastMCP · Hermes intégration</text>
+
+  <!-- Webhooks zone -->
+  <g transform="translate(40, 460)">
+    <text x="0" y="0" fill="#94a3b8" font-size="9" font-weight="600">Webhooks</text>
+    <rect x="0" y="10" width="160" height="35" rx="4" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1"/>
+    <text x="80" y="30" text-anchor="middle" fill="#fb7185" font-size="9">GitHub Issues (label: bug)</text>
+    <rect x="0" y="50" width="160" height="35" rx="4" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1"/>
+    <text x="80" y="70" text-anchor="middle" fill="#fb7185" font-size="9">Jira (issuetype: Bug)</text>
+    <rect x="0" y="90" width="160" height="35" rx="4" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1"/>
+    <text x="80" y="110" text-anchor="middle" fill="#fb7185" font-size="9">Slack Notifications</text>
+  </g>
+
+  <!-- Notifications -->
+  <g transform="translate(40, 610)">
+    <text x="0" y="0" fill="#94a3b8" font-size="9" font-weight="600">Persistence</text>
+    <rect x="0" y="10" width="160" height="35" rx="4" fill="rgba(76,29,149,0.3)" stroke="#a78bfa" stroke-width="1"/>
+    <text x="80" y="30" text-anchor="middle" fill="#a78bfa" font-size="9">SQLite (tasks)</text>
+    <rect x="0" y="50" width="160" height="35" rx="4" fill="rgba(76,29,149,0.3)" stroke="#a78bfa" stroke-width="1"/>
+    <text x="80" y="70" text-anchor="middle" fill="#a78bfa" font-size="9">YAML KB + Feedback</text>
+  </g>
+
+  <!-- Production -->
+  <g transform="translate(770, 460)">
+    <text x="0" y="0" fill="#94a3b8" font-size="9" font-weight="600">Production</text>
+    <rect x="0" y="10" width="200" height="28" rx="4" fill="rgba(30,41,59,0.5)" stroke="#475569" stroke-width="1"/>
+    <text x="100" y="28" text-anchor="middle" fill="#94a3b8" font-size="8">🐳 Docker multi-stage</text>
+    <rect x="0" y="42" width="200" height="28" rx="4" fill="rgba(30,41,59,0.5)" stroke="#475569" stroke-width="1"/>
+    <text x="100" y="60" text-anchor="middle" fill="#94a3b8" font-size="8">📊 Prometheus /metrics</text>
+    <rect x="0" y="74" width="200" height="28" rx="4" fill="rgba(30,41,59,0.5)" stroke="#475569" stroke-width="1"/>
+    <text x="100" y="92" text-anchor="middle" fill="#94a3b8" font-size="8">🔒 API Key + Rate Limiting</text>
+    <rect x="0" y="106" width="200" height="28" rx="4" fill="rgba(30,41,59,0.5)" stroke="#475569" stroke-width="1"/>
+    <text x="100" y="124" text-anchor="middle" fill="#94a3b8" font-size="8">📋 loguru rotation logs</text>
+    <rect x="0" y="138" width="200" height="28" rx="4" fill="rgba(30,41,59,0.5)" stroke="#475569" stroke-width="1"/>
+    <text x="100" y="156" text-anchor="middle" fill="#94a3b8" font-size="8">🩺 DeepSeek healthcheck</text>
+  </g>
+
+  <!-- Legend -->
+  <rect x="40" y="690" width="350" height="24" rx="4" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+  <circle cx="60" cy="702" r="4" fill="#22d3ee"/>
+  <text x="70" y="706" fill="#64748b" font-size="8">Frontend/API</text>
+  <circle cx="140" cy="702" r="4" fill="#34d399"/>
+  <text x="150" y="706" fill="#64748b" font-size="8">Backend/Agent</text>
+  <circle cx="240" cy="702" r="4" fill="#a78bfa"/>
+  <text x="250" y="706" fill="#64748b" font-size="8">Database/KB</text>
+  <circle cx="330" cy="702" r="4" fill="#fbbf24"/>
+  <text x="340" y="706" fill="#64748b" font-size="8">Integration</text>
+</svg>
+
+<div class="cards">
+  <div class="card">
+    <h3>🧬 Agentique</h3>
+    <ul>
+      <li>ReAct loop (Thought → Action → Observation)</li>
+      <li>LangGraph StateGraph avec mémoire</li>
+      <li>8 sous-agents spécialisés</li>
+      <li>DeepSeek V4 Pro (OpenAI-compatible)</li>
+      <li>KB cache pour bugs récurrents</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>⚡ Production</h3>
+    <ul>
+      <li>Docker multi-stage (docker compose up)</li>
+      <li>API Key auth + Rate limiting</li>
+      <li>SQLite persistante (tasks)</li>
+      <li>Prometheus métriques (5 metrics)</li>
+      <li>GitHub Actions CI (4 jobs)</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>🔧 Qualité</h3>
+    <ul>
+      <li>39 tests — 100% passing</li>
+      <li>Ruff lint + format</li>
+      <li>mypy type hints stricts</li>
+      <li>pre-commit hooks</li>
+      <li>CHANGELOG.md versionné</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

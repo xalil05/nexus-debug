@@ -8,7 +8,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%20|%203.12-blue?style=flat&logo=python" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License">
-  <img src="https://img.shields.io/badge/tests-38%20passing-brightgreen?style=flat" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-39%20passing-brightgreen?style=flat" alt="Tests">
   <img src="https://img.shields.io/badge/docker-ready-blue?style=flat&logo=docker" alt="Docker">
   <img src="https://img.shields.io/badge/API-FastAPI-teal?style=flat&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/agent-LangGraph-purple?style=flat" alt="LangGraph">
@@ -31,12 +31,19 @@ make run
 
 | Badge | Statut |
 |---|---|
-| ✅ 38 tests passants | `make test` |
+| ✅ 39 tests passants | `make test` |
 | 🧹 Ruff lint + format | `make lint` + `make format` |
 | 🔎 mypy type check | `make typecheck` |
 | 🐳 Docker build CI | `make docker-build` |
 | 🔐 API Key auth | Configurable via `.env` |
 | 📊 logs structurés | loguru avec rotation
+
+## 📚 Resources
+
+- 🎮 **Démo interactive** → [`DEMO.md`](DEMO.md)
+- 🏗️ **Diagramme d'architecture** → [`demo/architecture.html`](demo/architecture.html)
+- 📖 **Article technique** → [`ARTICLE.md`](ARTICLE.md)
+- 📋 **Changelog** → [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 
