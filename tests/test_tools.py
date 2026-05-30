@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+
 import pytest
 
 from nexus_tools import NEXUS_TOOLS
+
+
+HAS_API_KEY = bool(os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY"))
 
 
 SCHEMA_TOOL_RESULT = {"status", "summary", "confidence", "needs_more", "escalate"}
@@ -38,6 +43,7 @@ def test_tools_all_have_descriptions() -> None:
         assert tool_fn.description, f"{tool_fn.name} n'a pas de description"
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_triage_returns_valid_json() -> None:
     """Vérifie que tool_triage retourne toujours du JSON valide avec les champs requis."""
     from nexus_tools import tool_triage
@@ -52,6 +58,7 @@ def test_tool_triage_returns_valid_json() -> None:
     assert "confidence" in parsed
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_triage_classifies_null_reference() -> None:
     """Vérifie que le triage détecte une null reference."""
     from nexus_tools import tool_triage
@@ -64,6 +71,7 @@ def test_tool_triage_classifies_null_reference() -> None:
     assert 0 <= result["confidence"] <= 1
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_triage_p0_detected() -> None:
     """Vérifie qu'un P0 (crash prod) est classé haute priorité."""
     from nexus_tools import tool_triage
@@ -74,6 +82,7 @@ def test_tool_triage_p0_detected() -> None:
     assert result["priority"] in ("P0", "P1"), f"Devrait être haute priorité, got {result['priority']}"
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_fix_bug_file_not_found() -> None:
     """Vérifie le comportement quand le fichier n'existe pas — doit escalate."""
     from nexus_tools import tool_fix_bug
@@ -87,6 +96,7 @@ def test_tool_fix_bug_file_not_found() -> None:
     assert result["escalate"] is True
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_static_analysis_valid_json() -> None:
     """Vérifie que tool_static_analysis retourne du JSON valide."""
     from nexus_tools import tool_static_analysis
@@ -98,6 +108,7 @@ def test_tool_static_analysis_valid_json() -> None:
     assert "status" in result
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_runtime_debug_valid_json() -> None:
     """Vérifie que tool_runtime_debug retourne du JSON valide."""
     from nexus_tools import tool_runtime_debug
@@ -110,6 +121,7 @@ def test_tool_runtime_debug_valid_json() -> None:
     assert "root_cause" in result or "confidence" in result
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_generate_tests_valid_json() -> None:
     """Vérifie que tool_generate_tests retourne du JSON valide."""
     from nexus_tools import tool_generate_tests
@@ -123,6 +135,7 @@ def test_tool_generate_tests_valid_json() -> None:
     assert "test_code" in result or "summary" in result
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_write_postmortem_valid_json() -> None:
     """Vérifie que tool_write_postmortem retourne du JSON valide."""
     from nexus_tools import tool_write_postmortem
@@ -138,6 +151,7 @@ def test_tool_write_postmortem_valid_json() -> None:
     assert "postmortem_text" in result or "summary" in result
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_security_scan_valid_json() -> None:
     """Vérifie que tool_security_scan retourne du JSON valide."""
     from nexus_tools import tool_security_scan
@@ -149,6 +163,7 @@ def test_tool_security_scan_valid_json() -> None:
     assert "status" in result
 
 
+@pytest.mark.skipif(not HAS_API_KEY, reason="Nécessite clé API DeepSeek")
 def test_tool_perf_analysis_valid_json() -> None:
     """Vérifie que tool_perf_analysis retourne du JSON valide."""
     from nexus_tools import tool_perf_analysis

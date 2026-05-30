@@ -15,12 +15,21 @@ from langchain_core.tools import tool
 from loguru import logger
 from openai import OpenAI
 
-# ─── Client DeepSeek ──────────────────────────────────────────────────────────
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY or None,
-    base_url="https://api.deepseek.com/v1",
-)
+# ─── Client DeepSeek (lazy init) ──────────────────────────────────────────────
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            api_key = os.getenv("OPENAI_API_KEY")
+        _client = OpenAI(
+            api_key=api_key or "sk-placeholder",
+            base_url="https://api.deepseek.com/v1",
+        )
+    return _client
 
 
 def _call_subagent(skill_name: str, system_prompt: str, context: str) -> dict:
@@ -28,7 +37,8 @@ def _call_subagent(skill_name: str, system_prompt: str, context: str) -> dict:
     Appelle un sous-agent via l'API DeepSeek (OpenAI-compatible) avec son prompt dédié.
     Retourne toujours un JSON structuré.
     """
-    response = client.chat.completions.create(
+    _client = _get_client()
+    response = _client.chat.completions.create(
         model="deepseek-chat",
         max_tokens=2000,
         temperature=0.1,

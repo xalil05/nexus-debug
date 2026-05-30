@@ -6,9 +6,10 @@ FROM python:3.11-slim AS builder
 WORKDIR /build
 COPY pyproject.toml .
 
-RUN pip install --no-cache-dir build && \
-    pip install --no-cache-dir -e ".[dev]" && \
-    pip freeze > /build/requirements-frozen.txt
+# Generate frozen requirements from pyproject.toml
+RUN pip install --no-cache-dir pip && \
+    pip install --no-cache-dir ".[dev]" && \
+    pip freeze --exclude-editable > /build/requirements-frozen.txt
 
 
 # ── Runtime ──────────────────────────────────────────────────────────────────
@@ -37,7 +38,8 @@ ENV \
     NEXUS_KB_PATH=/data/nexus/kb/nexus_kb.yaml \
     NEXUS_REPORTS_DIR=/data/nexus/reports \
     NEXUS_FEEDBACK_PATH=/data/nexus/feedback/nexus_feedback.yaml \
-    NEXUS_DB_PATH=/data/nexus/nexus.db
+    NEXUS_DB_PATH=/data/nexus/nexus.db \
+    PYTHONUNBUFFERED=1
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:9001/health').raise_for_status()"
