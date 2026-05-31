@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 import yaml
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -159,3 +160,65 @@ def kb_stats() -> dict[str, Any]:
         "severities": severities,
         "version": data.get("version", 2),
     }
+
+
+# ── API asynchrone ────────────────────────────────────────────────────────────
+
+
+async def kb_load_async() -> dict[str, Any]:
+    """Version async de _load_kb avec aiofiles."""
+    path = Path(get_kb_path())
+    if not path.exists():
+        return {"bugs": [], "patterns": [], "version": 2}
+    try:
+        async with aiofiles.open(str(path), encoding="utf-8") as f:
+            raw = await f.read()
+        data = yaml.safe_load(raw)
+        if isinstance(data, dict) and "bugs" in data:
+            return data
+        return {"bugs": [], "patterns": [], "version": 2}
+    except Exception as exc:
+        logger.warning("Erreur lecture KB async: {}", exc)
+        return {"bugs": [], "patterns": [], "version": 2}
+
+
+async def kb_save_async(data: dict[str, Any]) -> None:
+    """Version async de _save_kb avec aiofiles."""
+    path = Path(get_kb_path())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_text = yaml.dump(data, allow_unicode=True, default_flow_style=False)
+    if len(yaml_text.encode("utf-8")) > 500_000:
+        raise ValueError("KB trop volumineuse (> 500 KB)")
+    async with aiofiles.open(str(path), "w", encoding="utf-8") as f:
+        await f.write(yaml_text)
+
+
+async def kb_store_async(
+    bug_id: str,
+    category: str = "unknown",
+    summary: str = "",
+    root_cause: str = "",
+    solution: str = "",
+    langage: str = "",
+    keywords: list[str] | None = None,
+    severity: str = "medium",
+) -> dict[str, Any]:
+    """Version async de kb_store."""
+    try:
+        entry = KBEntry(
+            bug_id=bug_id, category=category, summary=summary,
+            root_cause=root_cause, solution=solution, langage=langage,
+            keywords=keywords or [], severity=severity,
+        )
+    except Exception as exc:
+        logger.warning("KB store async: validation échouée: {}", exc)
+        return {"status": "error", "error": str(exc)[:200]}
+    try:
+        data = await kb_load_async()
+        data.setdefault("bugs", []).append(entry.model_dump())
+        await kb_save_async(data)
+        logger.info("KB async: bug {} stocké", bug_id)
+        return {"status": "stored", "bug_id": bug_id}
+    except Exception as exc:
+        logger.warning("KB store async: erreur: {}", exc)
+        return {"status": "error", "error": str(exc)[:200]}
