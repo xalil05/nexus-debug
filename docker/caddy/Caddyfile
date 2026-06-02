@@ -1,25 +1,12 @@
 # =============================================================================
-# Nexus-Debug — Caddy reverse proxy (HTTPS auto TLS)
+# Nexus-Debug — Caddy reverse proxy (HTTP via Tailscale)
 # =============================================================================
-
-# Mode développement (localhost) : décommenter la ligne ci-dessous
-# :9000 {
-#     reverse_proxy nexus:9001
-# }
-
-# Mode production (domaine réel) : décommenter et remplacer
-# nexus.example.com {
-#     reverse_proxy nexus:9001
-#     tls ton@email.com
-# }
-
-# Mode par défaut : localhost avec HTTPS auto-signé
-https://localhost:9000 {
+# La connexion Tailscale est déjà chiffrée par WireGuard,
+# pas besoin de HTTPS supplémentaire.
+:9000 {
     reverse_proxy nexus:9001
-    tls internal
-}
-
-# Redirection HTTP → HTTPS
-http://localhost:9000 {
-    redir https://localhost:9000{uri}
+    encode gzip
+    header Access-Control-Allow-Origin "*"
+    header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+    header Access-Control-Allow-Headers "Authorization, Content-Type"
 }

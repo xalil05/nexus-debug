@@ -27,7 +27,9 @@ import yaml
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from pathlib import Path
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -209,11 +211,14 @@ def validate_brief_length(request: DebugRequest) -> DebugRequest:
 class DebugRequest(BaseModel):
     description: str = Field(..., min_length=1, max_length=5000, description="Description du bug")
     project: str = Field(default="", max_length=200)
+    version: str = Field(default="", max_length=50, description="Version du projet (release tracking)")
     langage: str = Field(default="", max_length=50)
     fichier: str = Field(default="", max_length=500)
     erreur: str = Field(default="", max_length=2000)
     stack: str = Field(default="", max_length=10000)
     priority: str = Field(default="P2", pattern=r"^P[0-4]$")
+    breadcrumbs: list[dict] = Field(default_factory=list, description="Actions avant le crash")
+    context: dict = Field(default_factory=dict, description="Contexte (headers, body, etc.)")
 
 
 class FeedbackRequest(BaseModel):
@@ -284,13 +289,45 @@ async def run_debug_task(
         result = await nexus_run(brief, mission_id=f"DBG-{task_id}")
         result_status = result.get("status", "unknown")
 
+        # Préserver les métadonnées de capture (version, breadcrumbs, context)
+        capture_meta = {}
+        if task and task.get("result") and isinstance(task["result"], dict):
+            for key in ("version", "project", "context", "breadcrumbs"):
+                if key in task["result"]:
+                    capture_meta[key] = task["result"][key]
+
+        # Mode interactif : pause avant d'appliquer le fix
+        interactive = os.getenv("NEXUS_INTERACTIVE_MODE", "0") == "1"
+        has_fix = bool(result.get("root_cause") or result.get("files_modified"))
+        should_pause = interactive and has_fix and result_status != "error"
+
+        if should_pause:
+            full_result = {**capture_meta, **result}
+            await db.save_task(
+                task_id,
+                {
+                    "task_id": task_id,
+                    "status": "awaiting_approval",
+                    "brief": brief,
+                    "result": full_result,
+                    "priority": req.priority,
+                    "created_at": task.get("created_at", datetime.utcnow().isoformat())
+                    if task else datetime.utcnow().isoformat(),
+                    "completed_at": None,
+                },
+            )
+            logger.info("Mission {} — fix proposé, en attente d'approbation humaine", task_id)
+            return  # STOP — attendre approbation
+
+        full_result = {**capture_meta, **result}
+
         await db.save_task(
             task_id,
             {
                 "task_id": task_id,
                 "status": "termine",
                 "brief": brief,
-                "result": result,
+                "result": full_result,
                 "priority": req.priority,
                 "created_at": task.get("created_at", datetime.utcnow().isoformat())
                 if task
@@ -385,6 +422,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Rediriger / vers /dashboard ───────────────────────
+@app.get("/")
+async def root_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/dashboard/")
+
+# ── Servir le Dashboard frontend ──────────────────────
+FRONTEND_DIR = Path(__file__).parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/dashboard", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="dashboard")
+    logger.info("Dashboard frontend monté sur /dashboard depuis {}", FRONTEND_DIR)
+
 # ── Middleware & config ───────────────────────────────
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -449,12 +498,14 @@ async def metrics() -> PlainTextResponse:
 @app.get("/health", tags=[TAG_SYSTEM], summary="Healthcheck complet avec DeepSeek et DB")
 async def health() -> dict[str, Any]:
     deepseek = await check_deepseek_health()
+    from nexus_agent import get_active_provider
+    provider_info = get_active_provider()
     return {
         "status": "ok",
         "version": VERSION,
         "service": "nexus-debug",
         "db_connected": db._conn is not None,
-        "deepseek": deepseek,
+        "llm": provider_info,
         "github_webhook": bool(GITHUB_SECRET),
         "slack_webhook": bool(SLACK_WEBHOOK_URL),
         "api_key_configured": bool(API_KEY),
@@ -486,6 +537,8 @@ async def debug(
         brief_parts.append(f"LANGAGE : {req.langage}")
     if req.fichier:
         brief_parts.append(f"FICHIER : {req.fichier}")
+    if req.version:
+        brief_parts.append(f"VERSION : {req.version}")
     if req.erreur:
         brief_parts.append(f"ERREUR : {req.erreur}")
     if req.stack:
@@ -493,6 +546,14 @@ async def debug(
     brief_parts.append(f"PRIORITÉ : {req.priority}")
     brief_parts.append(f"\nDESCRIPTION :\n{req.description}")
     brief = sanitize_brief_text("\n".join(brief_parts))
+
+    # Stocker les métadonnées (version, breadcrumbs, context) dans result
+    result_meta = {
+        "version": req.version,
+        "project": req.project,
+        "context": req.context,
+        "breadcrumbs": req.breadcrumbs,
+    }
 
     await db.save_task(
         task_id,
@@ -503,7 +564,7 @@ async def debug(
             "brief": brief,
             "created_at": datetime.utcnow().isoformat(),
             "completed_at": None,
-            "result": {},
+            "result": result_meta,
         },
     )
 
@@ -535,6 +596,31 @@ async def list_tasks(limit: int = 20) -> dict[str, Any]:
     return {"tasks": tasks, "total": len(tasks)}
 
 
+@app.get(
+    "/tasks/by-version/{version}",
+    tags=[TAG_DEBUG],
+    summary="Lister les bugs par version (release tracking)",
+)
+async def list_tasks_by_version(version: str) -> dict[str, Any]:
+    """Retourne tous les bugs associés à une version donnée.
+    Utile pour savoir si un bug existait avant, a régressé, ou est nouveau.
+    """
+    all_tasks = await db.list_tasks(limit=500)
+    version_tasks = []
+    for t in all_tasks:
+        # Le résultat stocké contient la version
+        result = t.get("result", {})
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                result = {}
+        stored_version = result.get("version", "") if isinstance(result, dict) else ""
+        if stored_version == version:
+            version_tasks.append(t)
+    return {"version": version, "tasks": version_tasks, "total": len(version_tasks)}
+
+
 # ── Feedback ──────────────────────────────────────────────────────────────────
 
 
@@ -562,6 +648,136 @@ async def feedback(req: FeedbackRequest) -> dict[str, str]:
     FEEDBACK_PATH.write_text(yaml.dump(feedbacks, allow_unicode=True, default_flow_style=False))
     logger.info("Feedback enregistré : {} (note={})", req.task_id, req.rating)
     return {"status": "recorded", "task_id": req.task_id}
+
+
+# ── Interactive Mode (approbation humaine) ───────────────────────────────────
+
+
+class ApproveRequest(BaseModel):
+    approved: bool = Field(..., description="true = appliquer le fix, false = rejeter")
+    comment: str = Field(default="", max_length=2000, description="Commentaire optionnel")
+
+
+@app.get(
+    "/fix-proposal/{task_id}",
+    tags=[TAG_DEBUG],
+    summary="Voir la proposition de fix avant approbation",
+)
+async def get_fix_proposal(task_id: str) -> dict[str, Any]:
+    """Retourne la proposition de fix (analyse + patch proposé) si le task attend une approbation."""
+    task = await db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Tâche non trouvée")
+    if task["status"] != "awaiting_approval":
+        return {"task_id": task_id, "status": task["status"], "message": "La tâche n'attend pas d'approbation"}
+    result = task.get("result", {})
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+    return {
+        "task_id": task_id,
+        "status": "awaiting_approval",
+        "proposal": result.get("fix_proposal", {}),
+        "analysis": result.get("analysis", ""),
+        "files_to_modify": result.get("files_modified", []),
+        "root_cause": result.get("root_cause", ""),
+        "trace": result.get("_trace", {}),
+    }
+
+
+@app.post(
+    "/approve/{task_id}",
+    status_code=200,
+    dependencies=[Depends(verify_api_key)],
+    tags=[TAG_DEBUG],
+    summary="Approuver ou rejeter une proposition de fix",
+)
+async def approve_fix(task_id: str, req: ApproveRequest) -> dict[str, str]:
+    """Approuve ou rejette le fix proposé.
+    Si approuvé, le fix est appliqué et les tests sont lancés.
+    Si rejeté, la tâche est annulée avec le commentaire.
+    """
+    task = await db.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Tâche non trouvée")
+    if task["status"] != "awaiting_approval":
+        return {"task_id": task_id, "status": "error", "message": "La tâche n'attend pas d'approbation"}
+
+    result = task.get("result", {})
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+
+    if req.approved:
+        # Fix approuvé → exécuter le fix en arrière-plan
+        brief = task.get("brief", "")
+        logger.info("Fix approuvé pour {} — application...", task_id)
+
+        # Marquer comme en cours
+        await db.save_task(task_id, {
+            "task_id": task_id,
+            "status": "en_cours",
+            "priority": task.get("priority", "P2"),
+            "brief": brief,
+            "result": result,
+            "created_at": task.get("created_at", datetime.utcnow().isoformat()),
+            "completed_at": None,
+            "human_approved": True,
+            "human_comment": req.comment,
+        })
+
+        # Relancer le task runner avec le flag « fix seulement »
+        from nexus_agent import nexus_run
+        try:
+            fix_result = await nexus_run(
+                f"APPLIQUER LE FIX SUIVANT (déjà analysé et approuvé par l'humain):\n"
+                f"Root cause: {result.get('root_cause', '')}\n"
+                f"Proposed fix: {result.get('fix_proposal', {})}\n\n"
+                f"{brief}",
+                mission_id=f"FIX-{task_id}",
+            )
+            final_result = {**result, **fix_result}
+            final_result["human_approved"] = True
+            final_result["human_comment"] = req.comment
+
+            await db.save_task(task_id, {
+                "task_id": task_id,
+                "status": "termine",
+                "priority": task.get("priority", "P2"),
+                "brief": brief,
+                "result": final_result,
+                "created_at": task.get("created_at", datetime.utcnow().isoformat()),
+                "completed_at": datetime.utcnow().isoformat(),
+            })
+            logger.info("Fix appliqué pour {}: {}", task_id, fix_result.get("status", "done"))
+            return {"task_id": task_id, "status": "termine", "message": "Fix approuvé et appliqué"}
+        except Exception as exc:
+            logger.error("Fix échoué pour {}: {}", task_id, exc)
+            await db.save_task(task_id, {
+                "task_id": task_id,
+                "status": "erreur",
+                "result": {**result, "error": str(exc), "human_approved": True, "human_comment": req.comment},
+            })
+            return {"task_id": task_id, "status": "erreur", "message": str(exc)[:200]}
+    else:
+        # Fix rejeté
+        result["human_rejected"] = True
+        result["human_rejection_comment"] = req.comment
+        await db.save_task(task_id, {
+            "task_id": task_id,
+            "status": "termine",
+            "priority": task.get("priority", "P2"),
+            "brief": task.get("brief", ""),
+            "result": result,
+            "created_at": task.get("created_at", datetime.utcnow().isoformat()),
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+        logger.info("Fix rejeté pour {}: {}", task_id, req.comment[:100])
+        return {"task_id": task_id, "status": "rejected", "message": "Fix rejeté par l'humain"}
 
 
 # ── KB ────────────────────────────────────────────────────────────────────────

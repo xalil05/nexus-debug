@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus-Debug Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Global page entrance -->
+    <div class="page-wrapper">
+        <nav class="sidebar animate-slide-in" style="animation-delay: 0.05s">
+            <div class="logo">
+                <span class="logo-icon">🧬</span>
+                <span class="logo-text">Nexus-Debug</span>
+            </div>
+            <div class="nav-items">
+                <div class="nav-indicator" id="nav-indicator"></div>
+                <a href="#" class="nav-item active" data-view="dashboard">📊 Dashboard</a>
+                <a href="#" class="nav-item" data-view="tasks">📋 Bugs</a>
+                <a href="#" class="nav-item" data-view="analytics">📈 Analytics</a>
+                <a href="#" class="nav-item" data-view="settings">⚙️ Settings</a>
+            </div>
+            <div class="nav-footer" id="nav-footer">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Connexion...</span>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <div id="view-dashboard" class="view active">
+                <header class="view-header animate-fade-up" style="animation-delay: 0.15s">
+                    <h1>Dashboard</h1>
+                    <div class="header-actions">
+                        <button class="btn btn-primary ripple-btn" onclick="refreshAll()">🔄 Actualiser</button>
+                    </div>
+                </header>
+
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card animate-fade-up stagger" data-index="0"><div class="stat-value counter" id="stat-total" data-target="0">—</div><div class="stat-label">Total Bugs</div></div>
+                    <div class="stat-card animate-fade-up stagger" data-index="1"><div class="stat-value counter" id="stat-fixed" data-target="0">—</div><div class="stat-label">Résolus</div></div>
+                    <div class="stat-card animate-fade-up stagger" data-index="2"><div class="stat-value counter" id="stat-rate" data-target="0">—</div><div class="stat-label">Taux de succès</div></div>
+                    <div class="stat-card animate-fade-up stagger" data-index="3"><div class="stat-value counter" id="stat-open" data-target="0">—</div><div class="stat-label">En cours</div></div>
+                </div>
+
+                <div class="chart-container animate-fade-up" style="animation-delay: 0.45s">
+                    <canvas id="chart-bugs"></canvas>
+                </div>
+
+                <div class="recent-bugs animate-fade-up" style="animation-delay: 0.55s">
+                    <h2>Bugs récents</h2>
+                    <div id="recent-table" class="skeleton-container"></div>
+                </div>
+            </div>
+
+            <!-- Tasks View -->
+            <div id="view-tasks" class="view">
+                <header class="view-header">
+                    <h1>Bugs</h1>
+                    <div class="filters">
+                        <select id="filter-status" onchange="loadTasks()">
+                            <option value="">Tous les statuts</option>
+                            <option value="en_attente">En attente</option>
+                            <option value="en_cours">En cours</option>
+                            <option value="termine">Terminé</option>
+                            <option value="erreur">Erreur</option>
+                        </select>
+                        <select id="filter-priority" onchange="loadTasks()">
+                            <option value="">Toutes priorités</option>
+                            <option value="P0">P0 — Bloquant</option>
+                            <option value="P1">P1 — Haute</option>
+                            <option value="P2">P2 — Normale</option>
+                            <option value="P3">P3 — Basse</option>
+                        </select>
+                        <input type="text" id="filter-version" placeholder="Filtrer par version..." oninput="loadTasks()">
+                        <button class="btn btn-primary ripple-btn" onclick="loadTasks()">🔍</button>
+                    </div>
+                </header>
+                <div id="tasks-table" class="skeleton-container"></div>
+            </div>
+
+            <!-- Analytics View -->
+            <div id="view-analytics" class="view">
+                <header class="view-header">
+                    <h1>Analytics</h1>
+                </header>
+                <div class="charts-grid">
+                    <div class="chart-container animate-fade-up stagger" data-index="0"><h2>Priorités</h2><canvas id="chart-priority"></canvas></div>
+                    <div class="chart-container animate-fade-up stagger" data-index="1"><h2>Statuts</h2><canvas id="chart-status"></canvas></div>
+                    <div class="chart-container animate-fade-up stagger" data-index="2"><h2>Par version</h2><canvas id="chart-by-version"></canvas></div>
+                    <div class="chart-container animate-fade-up stagger" data-index="3"><h2>Temps de résolution</h2><canvas id="chart-fix-time"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="view-settings" class="view">
+                <header class="view-header">
+                    <h1>Configuration</h1>
+                </header>
+                <div class="settings-grid" id="settings-grid"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden" onclick="closeModal(event)">
+        <div class="modal-content animate-scale-in">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

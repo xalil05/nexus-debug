@@ -1,7 +1,7 @@
-# Nexus-Debug v2.2 — Documentation Complète 🧬
+# Nexus-Debug v3.0 — Agent de Débogage 🧬
 
 > Système agentique de débogage (ReAct + LangGraph + DeepSeek V4 Pro)
-> Version **2.2.1** — 30 Mai 2026
+> Version **3.0.0** — 2 Juin 2026
 
 > ⚠️ **SÉCURITÉ** : Ne jamais exposer Nexus-debug sans API_KEY configurée,
 > sans CORS restrictif, et sans user non-root dans le conteneur.
@@ -13,49 +13,48 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%20|%203.12-blue?style=flat&logo=python" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License">
-  <img src="https://img.shields.io/badge/tests-39%20passing-brightgreen?style=flat" alt="Tests">
+  <img src="https://img.shields.io/badge/version-3.0.0-orange?style=flat" alt="Version">
   <img src="https://img.shields.io/badge/docker-ready-blue?style=flat&logo=docker" alt="Docker">
   <img src="https://img.shields.io/badge/API-FastAPI-teal?style=flat&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/agent-LangGraph-purple?style=flat" alt="LangGraph">
-  <img src="https://img.shields.io/badge/LLM-DeepSeek%20V4%20Pro-orange?style=flat&logo=deepseek" alt="DeepSeek">
-  <img src="https://github.com/xalil05/nexus-debug/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI">
+  <img src="https://img.shields.io/badge/LLM-Multi%20Provider-blueviolet?style=flat" alt="Multi-LLM">
+  <img src="https://img.shields.io/badge/dashboard-ChatFlowAI%20Style-0de7ff?style=flat" alt="Dashboard">
 </p>
 
 ## ⚡ Quick Start
 
 ```bash
-# Option 1 : Docker (recommandé)
+# Docker (recommandé)
 docker compose up -d
-curl https://localhost:9000/health  # via Caddy (HTTPS)
-# ou curl http://localhost:9001/health  # direct
-
-# Option 2 : Dev local
-pip install -e ".[dev]"
-make run
+curl http://localhost:9000/health        # via Caddy (port 9000)
+curl http://localhost:9001/health        # direct API
 ```
 
-## 🏆 Qualité
+## 🔥 Nouveautés v3.0
 
-| Badge | Statut |
+| Feature | Description |
 |---|---|
-| ✅ 39 tests passants | `make test` |
-| 🧹 Ruff lint + format | `make lint` + `make format` |
-| 🔎 mypy type check | `make typecheck` |
-| 🐳 Docker build CI | `make docker-build` |
-| 🔐 API Key auth | Configurable via `.env` |
-| 📊 logs structurés | loguru avec rotation
-| 💾 backup/restore | `bash scripts/nexus-backup.sh`
-| 🚀 deploy | `bash scripts/deploy.sh`
-|
-| 📊 Monitoring
+| 🖥️ **Dashboard ChatFlowAI** | Interface glassmorphique sombre avec animations, compteurs, graphiques |
+| 🤖 **Multi-LLM** | 4 providers : DeepSeek, OpenAI, Anthropic, Ollama + fallback auto |
+| 📸 **Auto-capture** | Middleware Flask/FastAPI pour capture automatique des 5xx |
+| 🏷️ **Release tracking** | Bugs tagués par version, filtre par version dans l'UI |
+| 🥖 **Breadcrumbs** | Trace des actions menant au bug, attachée au rapport |
+| ⏱️ **Performance tracing** | Mesure temps d'exécution, outils utilisés, itérations |
+| 🧪 **SWE-bench** | Script de benchmark pour évaluer le taux de résolution |
+| ⚙️ **Config YAML** | Fichier `nexus-config.yaml` pour configurer sans variables d'env |
+| 🎮 **Interactive mode** | Mode approbation : Nexus propose un fix, l'humain valide |
+| 🐳 **Codespaces** | `.devcontainer/` prêt pour GitHub Codespaces |
+| 🎨 **Animations** | Stagger entrance, count-up, ripple, shimmer, view transitions |
+
+## 📊 Services
 
 | Service | URL | Accès |
 |---|---|---|
-| 🔵 Nexus API | `https://localhost:9000` (HTTPS) ou `http://localhost:9001` | API REST |
+| 🔵 **Nexus API** | `http://localhost:9001` | API REST (interne) |
+| 🔵 **Caddy proxy** | `http://localhost:9000` | Reverse proxy + dashboard |
+| 🖥️ **Dashboard** | `http://localhost:9000/dashboard/` | UI complète |
 | 📈 Prometheus | `http://localhost:9090` | Métriques brutes |
 | 📉 Grafana | `http://localhost:3000` | `admin` (mdp dans `.env`) |
-
-> Le dashboard Grafana est **pré‑configuré et auto‑provisionné**. Lance `docker compose up -d` et ton tableau de bord est prêt à l'emploi — 10 panneaux : requêtes, tâches, durées, heatmap, KB.
 
 ## 📚 Resources
 
@@ -84,112 +83,118 @@ make run
 
 ## 1. Présentation
 
-**Nexus-debug** est un système agentique de débogage qui utilise **ReAct (Reason + Act)** pour résoudre les bugs de façon autonome et intelligente. Contrairement aux pipelines fixes, Nexus décide lui-même de l'ordre des étapes, peut sauter des phases inutiles et boucler si nécessaire.
+**Nexus-debug v3.0** est un système agentique de débogage qui utilise **ReAct (Reason + Act)** pour résoudre les bugs de façon autonome. Il dispose désormais d'un **dashboard ChatFlowAI**, du **multi-LLM** (DeepSeek, OpenAI, Anthropic, Ollama), de l'**auto-capture** des 5xx, du **release tracking**, et d'un mode **interactif** avec approbation humaine.
 
 ### Philosophie
 
 | Principe | Description |
 |---|---|
 | **Agentique** | Nexus raisonne, décide, agit et observe — pas de procédure figée |
-| **Économique** | Tourne sur DeepSeek V4 Pro (pas de surcoût Claude/GPT) |
-| **Complet** | API REST + KB + MCP + Webhooks + Tests |
-| **Autonome** | Résout les bugs du début à la fin sans intervention humaine |
+| **Multi-LLM** | DeepSeek V4 Pro par défaut, fallback sur OpenAI/Anthropic/Ollama si besoin |
+| **Dashboard riche** | Interface glassmorphique sombre avec animations, compteurs, graphes |
+| **Complet** | API REST + Dashboard + KB + MCP + Webhooks + Tests + Wallet |
 
-### Prérequis
-
-- Python ≥ 3.10
-- Clé API DeepSeek (obtenir sur [platform.deepseek.com](https://platform.deepseek.com/api_keys))
-- pip (gestionnaire de paquets Python)
-
----
-
-## 2. Architecture
+### Architecture v3.0
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Orchestrateur (orchestrateur humain)       │
-└────────────────────┬────────────────────────────────────┘
-                     │ brief structuré
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│              nexus_orchestrator.py                        │
-│                                                          │
-│   ┌─ Vérification KB ──► si match → solution directe    │
-│   │                      (cache, pas d'appel LLM)        │
-│   └─ Sinon → nexus_agent.py                              │
-└──────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│  nexus_agent.py — Cerveau ReAct (LangGraph + DeepSeek)  │
-│                                                          │
-│  Boucle : Thought → Action → Observation → Repeat        │
-│                                                          │
-│  ┌─ tool_triage           (1er appel obligatoire)        │
-│  ├─ tool_static_analysis  (linters, AST, compilation)    │
-│  ├─ tool_security_scan    (bandit, OWASP, CVE)           │
-│  ├─ tool_runtime_debug    (stack trace, reproduction)    │
-│  ├─ tool_perf_analysis    (bottlenecks, mémoire)         │
-│  ├─ tool_fix_bug          (patch minimal)                │
-│  ├─ tool_generate_tests   (pytest/jest)                  │
-│  └─ tool_write_postmortem (KB update)                    │
-└──────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│              nexus_api.py — API REST (port 9001)         │
-│                                                          │
-│  POST /debug          → Soumettre un bug                 │
-│  GET  /status/{id}    → Statut de la tâche               │
-│  GET  /report/{id}    → Rapport final                    │
-│  GET  /health         → Healthcheck                      │
-│  POST /feedback       → Noter la qualité                 │
-│  GET  /kb/search      → Recherche KB                     │
-│  GET  /kb/stats       → Stats KB                         │
-│  POST /webhook/github → Recevoir issues GitHub           │
-│  POST /webhook/jira   → Recevoir tickets Jira            │
-│  GET  /tasks          → Lister les tâches                │
-└──────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│           nexus_mcp_server.py — 7 outils MCP             │
-│                                                          │
-│  search_code    → ripgrep dans le code source            │
-│  sandbox_execute→ exécution isolée (python/bash/node)   │
-│  run_diagnostic → pytest/bandit/semgrep                  │
-│  git_blame      → auteur + commit d'une ligne           │
-│  kb_search      → recherche base de connaissance        │
-│  kb_store       → stockage base de connaissance         │
-│  get_sentry_event→ événement Sentry (placeholder)       │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Orchestrateur (humain)                        │
+└─────────────────────────┬──────────────────────────────────────────┘
+                          │ brief structuré
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                nexus_orchestrator.py + nexus_config.py                │
+│                                                                      │
+│   ┌─ Vérification KB ──► si match → solution directe                │
+│   │                      (cache, pas d'appel LLM)                    │
+│   └─ Sinon → nexus_agent.py (multi-LLM routing)                     │
+└─────────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  nexus_agent.py — Cerveau ReAct (LangGraph + Multi-LLM)             │
+│                                                                      │
+│  Boucle : Thought → Action → Observation → Repeat                   │
+│  LLM switch : DeepSeek / OpenAI / Anthropic / Ollama (fallback)     │
+│                                                                      │
+│  ┌─ tool_triage           (1er appel obligatoire)                    │
+│  ├─ tool_static_analysis  (linters, AST, compilation)                │
+│  ├─ tool_security_scan    (bandit, OWASP, CVE)                       │
+│  ├─ tool_runtime_debug    (stack trace, reproduction)                │
+│  ├─ tool_perf_analysis    (bottlenecks, mémoire)                     │
+│  ├─ tool_fix_bug          (patch minimal, dry_run ou réel)           │
+│  ├─ tool_generate_tests   (pytest/jest)                              │
+│  └─ tool_write_postmortem (KB update)                                │
+└─────────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│              nexus_api.py — API REST (port 9001) + Dashboard         │
+│                                                                      │
+│  Endpoints historiques + v3.0 :                                      │
+│  POST /debug           → Soumettre un bug                            │
+│  GET  /health          → Healthcheck (avec provider LLM)             │
+│  GET  /dashboard/      → Dashboard frontend (ChatFlowAI style)       │
+│  GET  /tasks           → Lister les tâches (filtrable par version)   │
+│  POST /fix-proposal    → Interactive : propose un fix                │
+│  POST /approve         → Interactive : approuve le fix               │
+│  GET  /tasks/by-version/{v} → Release tracking                       │
+│  POST /webhook/github  → Recevoir issues GitHub                      │
+│  … (tous les endpoints historiques conservés)                        │
+└─────────────────────────────────────────────────────────────────────┘
+                          │
+                          ├──────────────────────────────────────────┐
+                          ▼                                          ▼
+┌──────────────────────────────────────────┐  ┌──────────────────────────┐
+│      nexus_capture/ (auto-capture)        │  │  nexus_mcp_server.py     │
+│                                          │  │  7 outils MCP            │
+│  flask_middleware.py  → capture 5xx Flask  │  │                         │
+│  fastapi_middleware.py → capture 5xx FastAPI│  │  search_code, sandbox,   │
+│  client.py            → SDK Python        │  │  run_diagnostic, git_blame│
+└──────────────────────────────────────────┘  │  kb_search, kb_store,    │
+                                              │  get_sentry_event        │
+                                              └──────────────────────────┘
 ```
 
-### Fichiers du projet
+### Fichiers du projet (v3.0)
 
 ```
 ~/nexus-debug/
-├── nexus_agent.py          ← Cerveau ReAct (LangGraph + DeepSeek V4 Pro)
-├── nexus_tools.py          ← 8 sous-agents comme outils @tool
-├── nexus_kb.py             ← Base de connaissance YAML
-├── nexus_api.py            ← API REST FastAPI (port 9001)
-├── nexus_orchestrator.py   ← Orchestrateur avec cache KB
-├── nexus_mcp_server.py     ← 7 outils MCP (FastMCP)
-├── nexus_state.py          ← Schémas Pydantic partagés
-├── nexus_improve.py        ← Amélioration continue
-├── orchestrateur_integration.py  ← Interface Orchestrateur → Nexus
-├── requirements.txt        ← Dépendances Python
-├── .gitignore              ← Fichiers ignorés
-├── SKILL.md                ← Skill Hermes
-├── README.md               ← Ce fichier
-├── tests/
-│   ├── test_agent.py       ← Tests de l'agent
-│   ├── test_kb.py          ← Tests de la KB
-│   ├── test_tools.py       ← Tests des outils
-│   ├── test_api.py         ← Tests de l'API REST
-│   └── test_improve.py     ← Tests de l'amélioration continue
+├── nexus_agent.py              ← Cerveau ReAct (LangGraph + Multi-LLM)
+├── nexus_tools.py              ← 8 sous-agents comme outils @tool
+├── nexus_kb.py                 ← Base de connaissance YAML
+├── nexus_api.py                ← API REST FastAPI (port 9001) + dashboard
+├── nexus_orchestrator.py       ← Orchestrateur avec cache KB
+├── nexus_config.py             ← Config YAML loader (v3.0)
+├── nexus_mcp_server.py         ← 7 outils MCP (FastMCP)
+├── nexus_state.py              ← Schémas Pydantic partagés
+├── nexus_improve.py            ← Amélioration continue
+├── swe_benchmark.py            ← SWE-bench benchmark (v3.0)
+├── orchestrateur_integration.py← Interface Orchestrateur → Nexus
+├── nexus_capture/              ← Auto-capture 5xx (v3.0)
+│   ├── __init__.py
+│   ├── client.py               ← SDK Python capture
+│   ├── flask_middleware.py     ← Middleware Flask
+│   └── fastapi_middleware.py   ← Middleware FastAPI
+├── frontend/                   ← Dashboard ChatFlowAI (v3.0)
+│   ├── index.html              ← HTML dashboard
+│   ├── style.css               ← CSS glassmorphique
+│   └── app.js                  ← JS compteurs, graphiques, animations
+├── .devcontainer/              ← GitHub Codespaces (v3.0)
+├── nexus-config.yaml           ← Exemple config YAML (v3.0)
+├── pyproject.toml              ← Dépendances + config projet
+├── Dockerfile                  ← Multi-stage Docker
+├── docker-compose.yml          ← Docker compose (Caddy + nexus)
+├── Caddyfile                   ← Reverse proxy Caddy
+├── tests/                      ← 39 tests pytest
+├── scripts/
+│   ├── deploy.sh               ← Déploiement one-command
+│   └── nexus-backup.sh         ← Backup volumes Docker
+├── docker/
+│   ├── prometheus/             ← Config Prometheus
+│   └── grafana/                ← Dashboard Grafana auto-provisionné
 └── docs/
-    └── architecture.md     ← Diagramme d'architecture détaillé
+    └── architecture.md         ← Diagramme d'architecture détaillé
 ```
 
 ---
@@ -243,7 +248,7 @@ python -m pytest tests/ -v
 # Lancer l'API
 python nexus_api.py &
 curl http://localhost:9001/health
-# → {"status":"ok","version":"2.0.0","service":"nexus-debug",...}
+# → {"status":"ok","version":"3.0.0","service":"nexus-debug",...}
 ```
 
 ---
@@ -315,18 +320,35 @@ L'API REST est disponible sur le port **9001** (configurable via `NEXUS_API_PORT
 
 | Méthode | Endpoint | Description | Corps (JSON) |
 |---|---|---|---|
-| `GET` | `/health` | Healthcheck | — |
+| `GET` | `/health` | Healthcheck (inclut provider LLM) | — |
 | `POST` | `/debug` | Soumettre un bug | `{description, project?, langage?, fichier?, erreur?, stack?, priority?}` |
 | `GET` | `/status/{task_id}` | Statut d'une tâche | — |
-| `GET` | `/report/{task_id}` | Rapport complet | — |
-| `GET` | `/tasks` | Lister les tâches | — |
+| `GET` | `/report/{task_id}` | Rapport complet (breadcrumbs, perf, version) | — |
+| `GET` | `/tasks` | Lister les tâches (filtre status/priority/version) | — |
+| `GET` | `/tasks/by-version/{version}` | Release tracking | — |
 | `POST` | `/feedback` | Noter la qualité | `{task_id, rating(1-5), comment?, corrected_by_human?}` |
+| `GET` | `/dashboard/` | Dashboard frontend ChatFlowAI | — |
+| `POST` | `/fix-proposal` | Interactive : proposer un fix | `{task_id}` |
+| `POST` | `/approve` | Interactive : approuver le fix | `{task_id, approved: true}` |
 | `GET` | `/kb/search?q=mot` | Recherche KB | — |
 | `GET` | `/kb/stats` | Statistiques KB | — |
 | `POST` | `/webhook/github` | Webhook GitHub | — |
 | `POST` | `/webhook/jira` | Webhook Jira | — |
 
-### 5.2 Réponse type
+### 5.2 Dashboard
+
+Le dashboard est accessible à `http://localhost:9000/dashboard/` (via Caddy) ou `http://localhost:9001/dashboard/` (direct).
+
+**Fonctionnalités :**
+- 🖥️ 4 vues : Dashboard, Bugs, Analytics, Configuration
+- 📊 4 cartes stats animées (Total, Résolus, Taux, En cours) avec compteurs
+- 📈 Graphique d'évolution des bugs (soumis vs résolus, 7 jours)
+- 🍩 Graphiques Analytics (priorités, statuts, versions, temps de résolution)
+- 📋 Tableau des bugs avec filtres (statut, priorité, version)
+- 🎬 Animations : stagger entrance, shimmer, pulse, view transitions, ripple
+- 🔄 Auto-refresh toutes les 30s
+
+### 5.3 Réponse type
 
 ```json
 {
@@ -348,7 +370,7 @@ L'API REST est disponible sur le port **9001** (configurable via `NEXUS_API_PORT
 }
 ```
 
-### 5.3 Codes d'erreur
+### 5.4 Codes d'erreur
 
 | Code | Signification |
 |---|---|

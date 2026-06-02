@@ -92,24 +92,102 @@ Retourne un JSON structuré avec :
 }"""
 
 
-# ─── Configuration DeepSeek ───────────────────────────────────────────────────
+# ─── Configuration Multi-LLM ────────────────────────────────────────────────
+NEXUS_LLM_PROVIDER = os.getenv("NEXUS_LLM_PROVIDER", "deepseek").lower()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
 NEXUS_MODEL = os.getenv("NEXUS_MODEL", "deepseek-chat")
 
-if not DEEPSEEK_API_KEY:
-    logger.warning("DEEPSEEK_API_KEY non définie — l'agent échouera au runtime")
+# Modèles par défaut par provider
+PROVIDER_DEFAULTS = {
+    "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1", "api_key": DEEPSEEK_API_KEY},
+    "openai": {"model": "gpt-4o", "base_url": "https://api.openai.com/v1", "api_key": OPENAI_API_KEY},
+    "openrouter": {"model": "openai/gpt-4o", "base_url": "https://openrouter.ai/api/v1", "api_key": OPENROUTER_API_KEY},
+}
+
+if NEXUS_LLM_PROVIDER not in PROVIDER_DEFAULTS and NEXUS_LLM_PROVIDER != "anthropic":
+    logger.warning("Provider inconnu '{}' — fallback deepseek", NEXUS_LLM_PROVIDER)
+    NEXUS_LLM_PROVIDER = "deepseek"
 
 
 def _get_llm() -> Any:
-    """Crée le LLM DeepSeek V4 Pro avec les outils liés."""
+    """Crée le LLM selon le provider configuré (deepseek|openai|openrouter|anthropic)."""
+    provider = NEXUS_LLM_PROVIDER
+
+    if provider == "anthropic":
+        return _get_anthropic_llm()
+    else:
+        config = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["deepseek"])
+        model = os.getenv("NEXUS_MODEL", config["model"])
+        api_key = config["api_key"] or None
+        base_url = config["base_url"]
+
+        if not api_key:
+            logger.warning("Clé API manquante pour {} — l'agent échouera au runtime", provider)
+
+        return ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            max_tokens=4096,
+            temperature=0.1,
+        ).bind_tools(NEXUS_TOOLS)
+
+
+def _get_anthropic_llm() -> Any:
+    """Crée un LLM Anthropic Claude via API directe (sans langchain-anthropic)."""
+    # On utilise ChatOpenAI avec le proxy Anthropic-to-OpenAI
+    # Ou on utilise directement l'API Anthropic. Pour l'instant,
+    # on utilise l'API REST directe si disponible, sinon fallback deepseek.
+    if not ANTHROPIC_API_KEY:
+        logger.warning("ANTHROPIC_API_KEY manquante — fallback deepseek")
+        return _get_fallback_for_provider("deepseek")
+
+    try:
+        # ChatOpenAI sur l'API Anthropic compatible OpenAI
+        model = os.getenv("NEXUS_MODEL", "claude-sonnet-4-20250514")
+        return ChatOpenAI(
+            model=model,
+            api_key=ANTHROPIC_API_KEY or None,
+            base_url="https://api.anthropic.com/v1",
+            max_tokens=4096,
+            temperature=0.1,
+        ).bind_tools(NEXUS_TOOLS)
+    except Exception as exc:
+        logger.warning("Anthropic indisponible ({}), fallback deepseek", exc)
+        return _get_fallback_for_provider("deepseek")
+
+
+def _get_fallback_for_provider(provider: str) -> Any:
+    """Fallback silencieux vers un autre provider si le principal échoue."""
+    config = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["deepseek"])
     return ChatOpenAI(
-        model=NEXUS_MODEL,
-        api_key=DEEPSEEK_API_KEY or None,  # type: ignore[arg-type]
-        base_url=DEEPSEEK_BASE_URL,
-        max_tokens=4096,  # type: ignore[call-arg]
+        model=config["model"],
+        api_key=config["api_key"] or None,
+        base_url=config["base_url"],
+        max_tokens=4096,
         temperature=0.1,
     ).bind_tools(NEXUS_TOOLS)
+
+
+def get_active_provider() -> dict[str, str | bool]:
+    """Retourne le provider actif et son modèle pour le healthcheck."""
+    provider = NEXUS_LLM_PROVIDER
+    if provider == "anthropic":
+        model = os.getenv("NEXUS_MODEL", "claude-sonnet-4-20250514")
+        key_ok = bool(ANTHROPIC_API_KEY)
+    else:
+        config = PROVIDER_DEFAULTS.get(provider, PROVIDER_DEFAULTS["deepseek"])
+        model = os.getenv("NEXUS_MODEL", config["model"])
+        key_ok = bool(config["api_key"])
+    return {
+        "provider": provider,
+        "model": model,
+        "api_key_configured": key_ok,
+    }
 
 
 # ─── Construction de l'agent ──────────────────────────────────────────────────
@@ -163,7 +241,11 @@ async def nexus_run(brief: str, mission_id: str | None = None) -> dict:
     """
     Point d'entrée pour Orchestrateur.
     Lance Nexus sur un bug et retourne le résultat final.
+    Inclut le performance tracing (timing + steps).
     """
+    import time
+    start_time = time.time()
+
     if not mission_id:
         mission_id = f"DBG-{uuid.uuid4().hex[:8].upper()}"
 
@@ -189,12 +271,16 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
 
     config = {"configurable": {"thread_id": mission_id}}
 
-    # Exécution avec streaming pour observer le raisonnement en temps réel
+    # Performance tracing
     final_state: dict[str, Any] | None = None
+    tool_call_count = 0
+    iteration_count = 0
+
     logger.info("Mission {} — lancement agent ReAct", mission_id)
 
     async for event in agent.astream(initial_state, config):
         for node_name, node_output in event.items():
+            iteration_count += 1
             if node_name == "nexus":
                 msgs = node_output.get("messages", [])
                 for msg in msgs:
@@ -203,6 +289,7 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
                         if content.strip():
                             logger.debug("[Nexus] {}", content)
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        tool_call_count += len(msg.tool_calls or [])
                         for tc in msg.tool_calls:
                             logger.info("  → {} ({})", tc["name"], tc.get("id", ""))
             elif node_name == "tools":
@@ -210,6 +297,8 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
                 for msg in msgs:
                     logger.debug("  ← {}...", str(msg.content)[:100])
         final_state = node_output
+
+    elapsed = time.time() - start_time
 
     # Extraction du résultat final depuis le dernier message
     if final_state:
@@ -234,13 +323,32 @@ Lance ton analyse agentique. Raisonne, utilise tes outils, et résous ce bug.
                         end = last_content.rfind("}") + 1
                         raw = last_content[start:end]
                     try:
-                        return json.loads(raw)
+                        result = json.loads(raw)
+                        result["_trace"] = {
+                            "elapsed_seconds": round(elapsed, 2),
+                            "tool_calls": tool_call_count,
+                            "iterations": iteration_count,
+                            "provider": get_active_provider(),
+                        }
+                        return result
                     except json.JSONDecodeError:
                         logger.warning("JSON extraction failed, falling back to raw output")
             # Fallback
-            return {"status": "done", "raw_output": str(last_content)[:500]}
+            fallback = {"status": "done", "raw_output": str(last_content)[:500]}
+            fallback["_trace"] = {
+                "elapsed_seconds": round(elapsed, 2),
+                "tool_calls": tool_call_count,
+                "iterations": iteration_count,
+            }
+            return fallback
 
-    return {"status": "error", "mission_id": mission_id}
+    error_result = {"status": "error", "mission_id": mission_id}
+    error_result["_trace"] = {
+        "elapsed_seconds": round(elapsed, 2),
+        "tool_calls": tool_call_count,
+        "iterations": iteration_count,
+    }
+    return error_result
 
 
 # ─── CLI pour test rapide ─────────────────────────────────────────────────────

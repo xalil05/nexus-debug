@@ -1,0 +1,30 @@
+{
+  "name": "Nexus-Debug v3.0",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "forwardPorts": [9000, 9001],
+  "portsAttributes": {
+    "9000": { "label": "Nexus-Debug (HTTPS via Caddy)", "onAutoForward": "notify" },
+    "9001": { "label": "Nexus-Debug API", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "pip install -e \".[dev]\" && pip install httpx aiofiles chromadb sentence-transformers && cp -n .env.example .env 2>/dev/null; echo '✅ Nexus-Debug prêt. Configure .env puis lance: make run'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "bierner.markdown-mermaid"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
