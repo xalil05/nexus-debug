@@ -9,7 +9,7 @@ import uuid
 import secrets
 import hashlib
 import json
-import time
+import bcrypt
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -105,7 +105,8 @@ def _now() -> str:
 
 
 def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash a password with bcrypt (includes salt)."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def _generate_api_key() -> str:
@@ -144,11 +145,23 @@ def authenticate(email: str, password: str) -> Optional[dict]:
     conn = get_db()
     try:
         row = conn.execute(
-            "SELECT client_id, email, api_key, project, plan, created_at FROM clients WHERE email = ? AND password_hash = ?",
-            (email, _hash_password(password)),
+            "SELECT client_id, email, api_key, project, plan, created_at, password_hash FROM clients WHERE email = ?",
+            (email,),
         ).fetchone()
-        if row:
-            return dict(row)
+        if not row:
+            return None
+        stored_hash = row["password_hash"]
+        # Detect hash format: bcrypt starts with $2, SHA-256 is 64 hex chars
+        if stored_hash.startswith("$2"):
+            if bcrypt.checkpw(password.encode(), stored_hash.encode()):
+                return dict(row)
+        else:
+            # Legacy SHA-256 fallback — re-hash to bcrypt on success
+            if hashlib.sha256(password.encode()).hexdigest() == stored_hash:
+                new_hash = _hash_password(password)
+                conn.execute("UPDATE clients SET password_hash=? WHERE email=?", (new_hash, email))
+                conn.commit()
+                return dict(row)
         return None
     finally:
         conn.close()

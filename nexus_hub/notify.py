@@ -9,6 +9,7 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import quote
 
 from . import db
+from . import telegram_utils as tg
 
 logger = logging.getLogger("nexus.hub.notify")
 
@@ -105,23 +106,15 @@ def generate_ai_fix(capture: dict) -> str:
 
 # ─── Telegram ───────────────────────────────────────────────────────────────
 
-TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
-
-
-def send_telegram(bot_token: str, chat_id: str, capture_id: int, client_id: str, error_type: str, error_message: str, url: str) -> bool:
+def send_telegram(bot_token: str, chat_id: str, capture_id: int, client_id: str,
+                  error_type: str, error_message: str, url: str) -> bool:
     """Send a 3-button alert to a Telegram chat."""
     if not bot_token or not chat_id:
         return False
 
-    # Escape special Markdown characters to prevent parse errors
-    import re as _re
-    def _escape_md(text: str) -> str:
-        """Escape Telegram Markdown special chars."""
-        return _re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
-
-    msg = _escape_md(error_message[:200]) if error_message else "?"
-    err_type = _escape_md(error_type)
-    path = _escape_md(url or "/")
+    msg = tg.telegram_escape_md(error_message[:200]) if error_message else "?"
+    err_type = tg.telegram_escape_md(error_type)
+    path = tg.telegram_escape_md(url or "/")
 
     text = (
         f"🚨 *Erreur détectée*\n"
@@ -132,51 +125,20 @@ def send_telegram(bot_token: str, chat_id: str, capture_id: int, client_id: str,
         f"🆔 Capture `#{capture_id}`"
     )
 
-    # Inline keyboard with 3 buttons
     keyboard = {
         "inline_keyboard": [[
-            {
-                "text": "✅ Corriger",
-                "callback_data": f"fix:{client_id}:{capture_id}",
-            },
-            {
-                "text": "📄 Rapport",
-                "callback_data": f"report:{client_id}:{capture_id}",
-            },
-            {
-                "text": "🔍 Détails",
-                "callback_data": f"detail:{client_id}:{capture_id}",
-            },
+            {"text": "✅ Corriger", "callback_data": f"fix:{client_id}:{capture_id}"},
+            {"text": "📄 Rapport", "callback_data": f"report:{client_id}:{capture_id}"},
+            {"text": "🔍 Détails", "callback_data": f"detail:{client_id}:{capture_id}"},
         ]]
     }
 
-    payload = json.dumps({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "reply_markup": keyboard,
-    }).encode("utf-8")
-
-    url_api = TELEGRAM_API.format(token=bot_token, method="sendMessage")
-    req = Request(url_api, data=payload, headers={"Content-Type": "application/json"})
-
-    try:
-        resp = urlopen(req, timeout=10)
-        success = 200 <= resp.status < 300
-        data = json.loads(resp.read())
-        if data.get("ok"):
-            logger.info("[Telegram] Alerte envoyée au chat %s — capture #%d", chat_id, capture_id)
-        else:
-            logger.warning("[Telegram] Réponse inattendue: %s", data.get("description", "?"))
-        return success
-    except (URLError, HTTPError, TimeoutError) as e:
-        logger.warning("[Telegram] Échec envoi: %s", e)
-        return False
+    return tg.telegram_send_with_keyboard(bot_token, chat_id, text, keyboard)
 
 
 def set_telegram_webhook(bot_token: str, webhook_url: str) -> bool:
     """Set the webhook for Telegram bot callbacks (button clicks)."""
-    url_api = TELEGRAM_API.format(token=bot_token, method="setWebhook")
+    url_api = tg.TELEGRAM_API.format(token=bot_token, method="setWebhook")
     payload = json.dumps({"url": webhook_url}).encode("utf-8")
     req = Request(url_api, data=payload, headers={"Content-Type": "application/json"})
     try:
@@ -195,16 +157,13 @@ def process_telegram_updates(bot_token: str, offset: int = 0) -> tuple[int, int]
     Returns (new_offset, count_processed).
     Used when webhook is not available (HTTP-only servers).
     """
-    from urllib.request import Request as Req, urlopen as uo
-    import json as j
-
-    url = TELEGRAM_API.format(token=bot_token, method="getUpdates")
-    payload = j.dumps({"offset": offset, "timeout": 5}).encode()
+    url = tg.TELEGRAM_API.format(token=bot_token, method="getUpdates")
+    payload = json.dumps({"offset": offset, "timeout": 5}).encode()
 
     try:
-        req = Req(url, data=payload, headers={"Content-Type": "application/json"})
-        resp = uo(req, timeout=10)
-        data = j.loads(resp.read())
+        req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+        resp = urlopen(req, timeout=10)
+        data = json.loads(resp.read())
     except Exception as e:
         logger.warning("[Telegram] Poll error: %s", e)
         return offset, 0
@@ -237,13 +196,11 @@ def process_telegram_updates(bot_token: str, offset: int = 0) -> tuple[int, int]
 
 
 def _handle_telegram_callback(bot_token: str, callback: dict):
-    """Handle a Telegram inline button click."""
-    from urllib.request import Request as Req, urlopen as uo
-    import json as j
-
+    """Handle a Telegram inline button click — delegates to shared handler."""
     data = callback.get("data", "")
     chat_id = str(callback.get("from", {}).get("id", ""))
     msg_chat = callback.get("message", {}).get("chat", {}).get("id", chat_id)
+    msg_id = callback.get("message", {}).get("message_id")
     parts = data.split(":")
     action = parts[0] if len(parts) > 0 else ""
     client_id = parts[1] if len(parts) > 1 else ""
@@ -251,121 +208,24 @@ def _handle_telegram_callback(bot_token: str, callback: dict):
 
     logger.info("[Telegram] Callback: %s — client=%s capture=%s chat=%s", action, client_id, capture_id, chat_id)
 
-    # Step 1: ACKNOWLEDGE IMMEDIATELY — dismiss the button loading state
-    ack_payload = j.dumps({
-        "callback_query_id": callback.get("id", ""),
-        "text": "⏳",
-        "show_alert": False,
-    }).encode()
-    try:
-        uo(Req(TELEGRAM_API.format(token=bot_token, method="answerCallbackQuery"),
-               data=ack_payload, headers={"Content-Type": "application/json"}), timeout=5)
-        logger.info("[Telegram] ACK sent ✅")
-    except Exception as e:
-        logger.warning("[Telegram] ACK failed: %s", e)
+    # Acknowledge
+    tg.telegram_ack_callback(bot_token, callback.get("id", ""))
 
-    # Step 2: Process action — send progress, then result
-    def _send_msg(text: str) -> int:
-        """Send a message and return its message_id."""
-        payload = j.dumps({
-            "chat_id": msg_chat, "text": text, "parse_mode": "Markdown",
-            "reply_to_message_id": callback.get("message", {}).get("message_id"),
-        }).encode()
-        try:
-            resp = uo(Req(TELEGRAM_API.format(token=bot_token, method="sendMessage"),
-                          data=payload, headers={"Content-Type": "application/json"}), timeout=10)
-            result = j.loads(resp.read())
-            if result.get("ok"):
-                return result["result"]["message_id"]
-        except Exception:
-            pass
-        return 0
-
-    def _edit_msg(msg_id: int, text: str):
-        """Edit an existing message."""
-        payload = j.dumps({
-            "chat_id": msg_chat, "message_id": msg_id,
-            "text": text, "parse_mode": "Markdown",
-        }).encode()
-        try:
-            uo(Req(TELEGRAM_API.format(token=bot_token, method="editMessageText"),
-                   data=payload, headers={"Content-Type": "application/json"}), timeout=10)
-        except Exception:
-            pass
-
-    if action == "fix":
-        captures = db.get_client_captures(client_id, 50)
-        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-        if capture:
-            mid = _send_msg("🛠️ **Génération du correctif...**\nDeepSeek analyse l'erreur et prépare un fix...")
-            logger.info("[Telegram] Génération du correctif pour #%s...", capture_id)
-            fix = generate_ai_fix(capture)
-            if mid:
-                _edit_msg(mid, f"✅ *Correctif généré*\n\n{fix}")
-            else:
-                _send_msg(fix)
-            # Final notification
-            _send_msg(
-                f"✅ *Correctif terminé !*\n"
-                f"┌─────────────────────\n"
-                f"│ Capture #{capture_id} — {capture.get('error_type', '?')}\n"
-                f"│ DeepSeek a généré un correctif\n"
-                f"│ ✅ Applique le code suggéré ci-dessus\n"
-                f"└─────────────────────"
-            )
-        else:
-            _send_msg(f"❌ Capture #{capture_id} non trouvée")
-    elif action == "report":
-        captures = db.get_client_captures(client_id, 50)
-        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-        if capture:
-            mid = _send_msg("🤖 **Analyse en cours...**\nDeepSeek diagnostique l'erreur...")
-            logger.info("[Telegram] Génération du rapport IA pour #%s...", capture_id)
-            report = generate_ai_report(capture)
-            if mid:
-                _edit_msg(mid, report)
-            else:
-                _send_msg(report)
-            # Final notification
-            _send_msg(
-                f"📋 *Rapport terminé !*\n"
-                f"┌─────────────────────\n"
-                f"│ Capture #{capture_id} — {capture.get('error_type', '?')}\n"
-                f"│ Consulte le diagnostic ci-dessus\n"
-                f"└─────────────────────"
-            )
-        else:
-            _send_msg(f"❌ Capture #{capture_id} non trouvée")
-    elif action == "detail":
-        captures = db.get_client_captures(client_id, 50)
-        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-        if capture:
-            answer = (
-                f"🔍 *Détails #{capture_id}*\n"
-                f"• Type : {capture['error_type']}\n"
-                f"• Message : {capture['error_message'][:200] or '?'}\n"
-                f"• URL : {capture['url'] or '/'}\n"
-                f"• Status : {capture.get('nexus_status', 'pending')}\n"
-                f"• {capture['created_at']}"
-            )
-            _send_msg(answer)
-        else:
-            _send_msg(f"❌ Capture #{capture_id} non trouvée")
-    else:
-        _send_msg("❌ Action inconnue")
+    # Handle action via shared handler
+    tg.handle_callback_action(
+        bot_token, msg_chat, msg_id,
+        action, client_id, capture_id,
+        db, generate_ai_report, generate_ai_fix,
+    )
 
 
 def _handle_start_command(bot_token: str, message: dict):
     """Handle /start <client_id> command — link Telegram chat to account."""
-    from urllib.request import Request as Req, urlopen as uo
-    import json as j
-
     text = message.get("text", "")
     chat_id = str(message.get("from", {}).get("id", ""))
     parts = text.split()
 
     if len(parts) < 2:
-        # No client_id — send instructions
         reply = (
             "👋 Bienvenue sur Nexus Watch !\n\n"
             "Pour lier votre compte :\n"
@@ -379,16 +239,7 @@ def _handle_start_command(bot_token: str, message: dict):
         db.update_notifications(client_id, telegram=chat_id)
         reply = f"✅ Compte lié ! Vous recevrez les alertes pour le client **{client_id}** ici."
 
-    payload = j.dumps({
-        "chat_id": chat_id, "text": reply, "parse_mode": "Markdown"
-    }).encode()
-    try:
-        uo(Req(
-            TELEGRAM_API.format(token=bot_token, method="sendMessage"),
-            data=payload, headers={"Content-Type": "application/json"}
-        ), timeout=5)
-    except Exception:
-        pass
+    tg.telegram_send_msg(bot_token, chat_id, reply)
 
 
 # ─── WhatsApp (Twilio) ──────────────────────────────────────────────────────
@@ -398,7 +249,6 @@ def send_whatsapp(account_sid: str, auth_token: str, from_phone: str, to_phone: 
     if not account_sid or not auth_token or not to_phone:
         return False
 
-    from urllib.request import Request, urlopen
     import base64
 
     auth = base64.b64encode(f"{account_sid}:{auth_token}".encode()).decode()

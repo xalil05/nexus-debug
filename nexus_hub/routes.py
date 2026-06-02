@@ -1,5 +1,4 @@
 """Nexus Hub — API routes for multi-tenant error capture."""
-
 import json
 import logging
 from fastapi import APIRouter, HTTPException, Request
@@ -9,6 +8,7 @@ from typing import Optional
 from . import db
 from . import notify
 from . import ssh
+from . import telegram_utils as tg
 
 logger = logging.getLogger("nexus.hub")
 router = APIRouter(prefix="/hub", tags=["hub"])
@@ -62,7 +62,6 @@ def login(req: LoginRequest):
     client = db.authenticate(req.email, req.password)
     if not client:
         raise HTTPException(401, "Email ou mot de passe invalide")
-    # Don't include api_key in login response for security
     return {
         "client_id": client["client_id"],
         "email": client["email"],
@@ -91,19 +90,16 @@ def get_notifications(client_id: str):
 @router.post("/capture")
 def capture(data: CaptureData):
     """Receive an error from watch-py. Public endpoint — no auth header needed, api_key in body."""
-    # Find client by api_key
     client = db.get_client_by_api_key(data.api_key)
     if not client:
         raise HTTPException(401, "Clé API invalide")
 
-    # Save the capture
     capture_id = db.save_capture(client["client_id"], data.model_dump())
-    logger.info("[%s] Capture #%d: %s — %s", client["client_id"], capture_id, data.error.get("type", "?"), data.error.get("message", "")[:60])
+    logger.info("[%s] Capture #%d: %s — %s", client["client_id"], capture_id,
+                data.error.get("type", "?"), data.error.get("message", "")[:60])
 
-    # Send notification to client's configured channels
     notify.notify_client(
-        client["client_id"],
-        capture_id,
+        client["client_id"], capture_id,
         data.error.get("type", "Erreur"),
         data.error.get("message", ""),
         data.request.get("url", ""),
@@ -198,8 +194,7 @@ def diagnose(client_id: str):
     """Run full SSH diagnostic on the client's server."""
     result = ssh.diagnose(client_id)
     if not result["success"]:
-        from fastapi import HTTPException as HE
-        raise HE(400, result.get("error", "Diagnostic échoué"))
+        raise HTTPException(400, result.get("error", "Diagnostic échoué"))
     return result
 
 
@@ -232,7 +227,6 @@ def set_config(req: ConfigUpdate):
 def get_config():
     """Get all hub config (keys only, values masked)."""
     cfg = notify._get_config()
-    # Mask sensitive values
     safe = {}
     for k, v in cfg.items():
         if "token" in k.lower() or "secret" in k.lower() or "key" in k.lower():
@@ -285,84 +279,13 @@ async def telegram_webhook(request: Request):
         if not bot_token:
             return {"ok": False, "error": "No bot token"}
 
-        # Step 1: ACKNOWLEDGE IMMEDIATELY
-        import json as j
-        from urllib.request import Request as Req, urlopen
-        try:
-            ack = j.dumps({"callback_query_id": callback.get("id", ""), "text": "⏳", "show_alert": False}).encode()
-            urlopen(Req(f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-                       data=ack, headers={"Content-Type": "application/json"}), timeout=5)
-        except Exception:
-            pass
-
-        # Step 2: Build and send reply with progress
-        def _send_msg(text: str) -> int:
-            payload = j.dumps({
-                "chat_id": msg_chat, "text": text, "parse_mode": "Markdown",
-                "reply_to_message_id": msg_id,
-            }).encode()
-            try:
-                resp = urlopen(Req(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                   data=payload, headers={"Content-Type": "application/json"}), timeout=10)
-                result = j.loads(resp.read())
-                if result.get("ok"):
-                    return result["result"]["message_id"]
-            except Exception:
-                pass
-            return 0
-
-        def _edit_msg(msg_id: int, text: str):
-            payload = j.dumps({
-                "chat_id": msg_chat, "message_id": msg_id,
-                "text": text, "parse_mode": "Markdown",
-            }).encode()
-            try:
-                urlopen(Req(f"https://api.telegram.org/bot{bot_token}/editMessageText",
-                           data=payload, headers={"Content-Type": "application/json"}), timeout=10)
-            except Exception:
-                pass
-
-        if action == "fix":
-            captures = db.get_client_captures(client_id, 50)
-            capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-            if capture:
-                mid = _send_msg("🛠️ **Génération du correctif...**\nDeepSeek analyse l'erreur et prépare un fix...")
-                fix = notify.generate_ai_fix(capture)
-                if mid:
-                    _edit_msg(mid, f"✅ *Correctif généré*\n\n{fix}")
-                else:
-                    _send_msg(fix)
-            else:
-                _send_msg(f"❌ Capture #{capture_id} non trouvée")
-        elif action == "report":
-            captures = db.get_client_captures(client_id, 50)
-            capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-            if capture:
-                mid = _send_msg("🤖 **Analyse en cours...**\nDeepSeek diagnostique l'erreur...")
-                report = notify.generate_ai_report(capture)
-                if mid:
-                    _edit_msg(mid, report)
-                else:
-                    _send_msg(report)
-            else:
-                _send_msg(f"❌ Capture #{capture_id} non trouvée")
-        elif action == "detail":
-            captures = db.get_client_captures(client_id, 50)
-            capture = next((c for c in captures if str(c["id"]) == capture_id), None)
-            if capture:
-                _send_msg(
-                    f"🔍 *Détails #{capture_id}*\n"
-                    f"• Type : {capture['error_type']}\n"
-                    f"• Message : {capture['error_message'][:200] or '?'}\n"
-                    f"• URL : {capture['url'] or '/'}\n"
-                    f"• Status : {capture.get('nexus_status', 'pending')}\n"
-                    f"• {capture['created_at']}"
-                )
-            else:
-                _send_msg(f"❌ Capture #{capture_id} non trouvée")
-        else:
-            _send_msg("❌ Action inconnue")
-
+        # Acknowledge callback, then handle action
+        tg.telegram_ack_callback(bot_token, callback.get("id", ""))
+        tg.handle_callback_action(
+            bot_token, msg_chat, msg_id,
+            action, client_id, capture_id,
+            db, notify.generate_ai_report, notify.generate_ai_fix,
+        )
         return {"ok": True}
 
     # /start command (link client to chat)

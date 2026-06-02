@@ -69,7 +69,7 @@ def connect(client_id: str) -> Optional[paramiko.SSHClient]:
             return None
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.set_missing_host_key_policy(paramiko.WarningPolicy())
 
     try:
         client.connect(
