@@ -408,6 +408,29 @@ async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
 
     await db.connect()
     logger.info("Nexus-debug API v2.1 démarrée sur {}:{}", API_HOST, API_PORT)
+
+    # ── Démarrage du polling Telegram ───────────────────────────────────
+    import threading
+    from nexus_hub.notify import process_telegram_updates, _get_config
+
+    def _poll_telegram_loop():
+        offset = 0
+        while True:
+            try:
+                bot_token = _get_config().get("telegram_bot_token", "")
+                if bot_token:
+                    offset, count = process_telegram_updates(bot_token, offset)
+                    if count:
+                        logger.info("[Telegram Poll] %d updates traités", count)
+            except Exception:
+                pass
+            import time
+            time.sleep(3)
+
+    t = threading.Thread(target=_poll_telegram_loop, daemon=True)
+    t.start()
+    logger.info("🤖 Polling Telegram démarré (intervalle: 3s)")
+
     yield
     await db.close()
     logger.info("Nexus-debug API arrêtée")

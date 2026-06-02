@@ -21,14 +21,21 @@ def send_telegram(bot_token: str, chat_id: str, capture_id: int, client_id: str,
     if not bot_token or not chat_id:
         return False
 
-    # Truncate long messages
-    msg = error_message[:200] if error_message else "?"
+    # Escape special Markdown characters to prevent parse errors
+    import re as _re
+    def _escape_md(text: str) -> str:
+        """Escape Telegram Markdown special chars."""
+        return _re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+
+    msg = _escape_md(error_message[:200]) if error_message else "?"
+    err_type = _escape_md(error_type)
+    path = _escape_md(url or "/")
 
     text = (
         f"🚨 *Erreur détectée*\n"
         f"┌─────────────────────\n"
-        f"│ `{error_type}` sur `{url or '/'}`\n"
-        f"│ _{msg}_\n"
+        f"│ `{err_type}` sur `{path}`\n"
+        f"│ {msg}\n"
         f"└─────────────────────\n"
         f"🆔 Capture `#{capture_id}`"
     )
@@ -83,9 +90,131 @@ def set_telegram_webhook(bot_token: str, webhook_url: str) -> bool:
     try:
         resp = urlopen(req, timeout=10)
         data = json.loads(resp.read())
+        logger.info("[Telegram] Webhook set: %s", data)
         return data.get("ok", False)
-    except Exception:
+    except Exception as e:
+        logger.warning("[Telegram] Webhook failed (expected on HTTP/Tailscale): %s", e)
         return False
+
+
+def process_telegram_updates(bot_token: str, offset: int = 0) -> tuple[int, int]:
+    """Poll Telegram for incoming updates (button clicks, /start commands).
+
+    Returns (new_offset, count_processed).
+    Used when webhook is not available (HTTP-only servers).
+    """
+    from urllib.request import Request as Req, urlopen as uo
+    import json as j
+
+    url = TELEGRAM_API.format(token=bot_token, method="getUpdates")
+    payload = j.dumps({"offset": offset, "timeout": 5}).encode()
+
+    try:
+        req = Req(url, data=payload, headers={"Content-Type": "application/json"})
+        resp = uo(req, timeout=10)
+        data = j.loads(resp.read())
+    except Exception as e:
+        logger.warning("[Telegram] Poll error: %s", e)
+        return offset, 0
+
+    if not data.get("ok"):
+        return offset, 0
+
+    updates = data.get("result", [])
+    count = 0
+
+    for update in updates:
+        update_id = update.get("update_id", 0)
+        offset = max(offset, update_id + 1)
+
+        # Callback query (button clicks)
+        cb = update.get("callback_query", {})
+        if cb:
+            _handle_telegram_callback(bot_token, cb)
+            count += 1
+            continue
+
+        # /start command
+        msg = update.get("message", {})
+        text = msg.get("text", "")
+        if text.startswith("/start"):
+            _handle_start_command(bot_token, msg)
+            count += 1
+
+    return offset, count
+
+
+def _handle_telegram_callback(bot_token: str, callback: dict):
+    """Handle a Telegram inline button click."""
+    from urllib.request import Request as Req, urlopen as uo
+    import json as j
+
+    data = callback.get("data", "")
+    chat_id = str(callback.get("from", {}).get("id", ""))
+    parts = data.split(":")
+    action = parts[0] if len(parts) > 0 else ""
+    client_id = parts[1] if len(parts) > 1 else ""
+    capture_id = parts[2] if len(parts) > 2 else ""
+
+    logger.info("[Telegram] Callback: %s — client=%s capture=%s", action, client_id, capture_id)
+
+    if action == "fix":
+        answer = "✅ Correction en cours... (bientôt disponible)"
+    elif action == "report":
+        captures = db.get_client_captures(client_id, 50)
+        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
+        if capture:
+            answer = f"📄 Rapport #{capture_id}: {capture['error_type']} — {capture['error_message'][:100]}"
+        else:
+            answer = "❌ Capture non trouvée"
+    else:
+        answer = "❌ Action inconnue"
+
+    # Answer callback (dismiss loading)
+    payload = j.dumps({"callback_query_id": callback.get("id", ""), "text": answer, "show_alert": False}).encode()
+    try:
+        uo(Req(
+            TELEGRAM_API.format(token=bot_token, method="answerCallbackQuery"),
+            data=payload, headers={"Content-Type": "application/json"}
+        ), timeout=5)
+    except Exception:
+        pass
+
+
+def _handle_start_command(bot_token: str, message: dict):
+    """Handle /start <client_id> command — link Telegram chat to account."""
+    from urllib.request import Request as Req, urlopen as uo
+    import json as j
+
+    text = message.get("text", "")
+    chat_id = str(message.get("from", {}).get("id", ""))
+    parts = text.split()
+
+    if len(parts) < 2:
+        # No client_id — send instructions
+        reply = (
+            "👋 Bienvenue sur Nexus Watch !\n\n"
+            "Pour lier votre compte :\n"
+            "1. Connectez-vous sur votre dashboard\n"
+            "2. Copiez votre Client ID\n"
+            "3. Tapez /start VOTRE_CLIENT_ID ici\n\n"
+            "Exemple : /start abc12345"
+        )
+    else:
+        client_id = parts[1]
+        db.update_notifications(client_id, telegram=chat_id)
+        reply = f"✅ Compte lié ! Vous recevrez les alertes pour le client **{client_id}** ici."
+
+    payload = j.dumps({
+        "chat_id": chat_id, "text": reply, "parse_mode": "Markdown"
+    }).encode()
+    try:
+        uo(Req(
+            TELEGRAM_API.format(token=bot_token, method="sendMessage"),
+            data=payload, headers={"Content-Type": "application/json"}
+        ), timeout=5)
+    except Exception:
+        pass
 
 
 # ─── WhatsApp (Twilio) ──────────────────────────────────────────────────────
@@ -160,7 +289,6 @@ def notify_client(client_id: str, capture_id: int, error_type: str, error_messag
     results = {"telegram": False, "whatsapp": False, "slack": False}
 
     notif = db.get_notifications(client_id)
-    config = db._get_config()
 
     # Telegram
     bot_token = _get_config().get("telegram_bot_token", "")
