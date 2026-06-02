@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -10,6 +11,97 @@ from urllib.parse import quote
 from . import db
 
 logger = logging.getLogger("nexus.hub.notify")
+
+
+# ─── AI Report (DeepSeek) ────────────────────────────────────────────────────
+
+def generate_ai_report(capture: dict) -> str:
+    """Generate an AI diagnostic report using DeepSeek."""
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not api_key:
+        return "❌ DeepSeek non configuré (DEEPSEEK_API_KEY manquante)"
+
+    prompt = (
+        "Analyse cette erreur et fournis un diagnostic concis :\n\n"
+        f"Type: {capture.get('error_type', '?')}\n"
+        f"Message: {capture.get('error_message', '?')[:500]}\n"
+        f"URL: {capture.get('url', '/')}\n\n"
+        "Réponds en français (max 300 caractères) :\n"
+        "1. Cause racine probable (1 phrase)\n"
+        "2. Solution recommandée (2-3 étapes courtes)\n"
+        "3. Code de correction si applicable"
+    )
+
+    payload = json.dumps({
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Tu es un expert en débogage. Réponds en français, concis et technique, max 300 caractères."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 500,
+        "temperature": 0.3,
+    }).encode()
+
+    try:
+        req = Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        resp = urlopen(req, timeout=30)
+        data = json.loads(resp.read())
+        content = data["choices"][0]["message"]["content"]
+        return f"🤖 Diagnostic IA :\n{content[:350]}"
+    except Exception as e:
+        return f"❌ Erreur IA : {str(e)[:150]}"
+
+
+def generate_ai_fix(capture: dict) -> str:
+    """Generate an AI code fix using DeepSeek."""
+    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not api_key:
+        return "❌ DeepSeek non configuré (DEEPSEEK_API_KEY manquante)"
+
+    prompt = (
+        "Génère un correctif pour cette erreur :\n\n"
+        f"Type: {capture.get('error_type', '?')}\n"
+        f"Message: {capture.get('error_message', '?')[:500]}\n"
+        f"URL: {capture.get('url', '/')}\n\n"
+        "Réponds en français avec ce format :\n"
+        "1. Cause racine (1 phrase)\n"
+        "2. Solution (2-3 étapes)\n"
+        "3. Code de correction (bloc ```code```)"
+    )
+
+    payload = json.dumps({
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Tu es un expert en débogage. Fournis des correctifs précis et directement applicables. Réponds en français."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 800,
+        "temperature": 0.2,
+    }).encode()
+
+    try:
+        req = Request(
+            "https://api.deepseek.com/v1/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        resp = urlopen(req, timeout=30)
+        data = json.loads(resp.read())
+        content = data["choices"][0]["message"]["content"]
+        return f"🛠️ *Correctif proposé :*\n\n{content[:800]}"
+    except Exception as e:
+        return f"❌ Erreur IA : {str(e)[:150]}"
+
 
 # ─── Telegram ───────────────────────────────────────────────────────────────
 
@@ -53,7 +145,7 @@ def send_telegram(bot_token: str, chat_id: str, capture_id: int, client_id: str,
             },
             {
                 "text": "🔍 Détails",
-                "url": f"https://nexus-hub.com/dashboard/{client_id}/captures/{capture_id}",
+                "callback_data": f"detail:{client_id}:{capture_id}",
             },
         ]]
     }
@@ -151,34 +243,116 @@ def _handle_telegram_callback(bot_token: str, callback: dict):
 
     data = callback.get("data", "")
     chat_id = str(callback.get("from", {}).get("id", ""))
+    msg_chat = callback.get("message", {}).get("chat", {}).get("id", chat_id)
     parts = data.split(":")
     action = parts[0] if len(parts) > 0 else ""
     client_id = parts[1] if len(parts) > 1 else ""
     capture_id = parts[2] if len(parts) > 2 else ""
 
-    logger.info("[Telegram] Callback: %s — client=%s capture=%s", action, client_id, capture_id)
+    logger.info("[Telegram] Callback: %s — client=%s capture=%s chat=%s", action, client_id, capture_id, chat_id)
+
+    # Step 1: ACKNOWLEDGE IMMEDIATELY — dismiss the button loading state
+    ack_payload = j.dumps({
+        "callback_query_id": callback.get("id", ""),
+        "text": "⏳",
+        "show_alert": False,
+    }).encode()
+    try:
+        uo(Req(TELEGRAM_API.format(token=bot_token, method="answerCallbackQuery"),
+               data=ack_payload, headers={"Content-Type": "application/json"}), timeout=5)
+        logger.info("[Telegram] ACK sent ✅")
+    except Exception as e:
+        logger.warning("[Telegram] ACK failed: %s", e)
+
+    # Step 2: Process action — send progress, then result
+    def _send_msg(text: str) -> int:
+        """Send a message and return its message_id."""
+        payload = j.dumps({
+            "chat_id": msg_chat, "text": text, "parse_mode": "Markdown",
+            "reply_to_message_id": callback.get("message", {}).get("message_id"),
+        }).encode()
+        try:
+            resp = uo(Req(TELEGRAM_API.format(token=bot_token, method="sendMessage"),
+                          data=payload, headers={"Content-Type": "application/json"}), timeout=10)
+            result = j.loads(resp.read())
+            if result.get("ok"):
+                return result["result"]["message_id"]
+        except Exception:
+            pass
+        return 0
+
+    def _edit_msg(msg_id: int, text: str):
+        """Edit an existing message."""
+        payload = j.dumps({
+            "chat_id": msg_chat, "message_id": msg_id,
+            "text": text, "parse_mode": "Markdown",
+        }).encode()
+        try:
+            uo(Req(TELEGRAM_API.format(token=bot_token, method="editMessageText"),
+                   data=payload, headers={"Content-Type": "application/json"}), timeout=10)
+        except Exception:
+            pass
 
     if action == "fix":
-        answer = "✅ Correction en cours... (bientôt disponible)"
+        captures = db.get_client_captures(client_id, 50)
+        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
+        if capture:
+            mid = _send_msg("🛠️ **Génération du correctif...**\nDeepSeek analyse l'erreur et prépare un fix...")
+            logger.info("[Telegram] Génération du correctif pour #%s...", capture_id)
+            fix = generate_ai_fix(capture)
+            if mid:
+                _edit_msg(mid, f"✅ *Correctif généré*\n\n{fix}")
+            else:
+                _send_msg(fix)
+            # Final notification
+            _send_msg(
+                f"✅ *Correctif terminé !*\n"
+                f"┌─────────────────────\n"
+                f"│ Capture #{capture_id} — {capture.get('error_type', '?')}\n"
+                f"│ DeepSeek a généré un correctif\n"
+                f"│ ✅ Applique le code suggéré ci-dessus\n"
+                f"└─────────────────────"
+            )
+        else:
+            _send_msg(f"❌ Capture #{capture_id} non trouvée")
     elif action == "report":
         captures = db.get_client_captures(client_id, 50)
         capture = next((c for c in captures if str(c["id"]) == capture_id), None)
         if capture:
-            answer = f"📄 Rapport #{capture_id}: {capture['error_type']} — {capture['error_message'][:100]}"
+            mid = _send_msg("🤖 **Analyse en cours...**\nDeepSeek diagnostique l'erreur...")
+            logger.info("[Telegram] Génération du rapport IA pour #%s...", capture_id)
+            report = generate_ai_report(capture)
+            if mid:
+                _edit_msg(mid, report)
+            else:
+                _send_msg(report)
+            # Final notification
+            _send_msg(
+                f"📋 *Rapport terminé !*\n"
+                f"┌─────────────────────\n"
+                f"│ Capture #{capture_id} — {capture.get('error_type', '?')}\n"
+                f"│ Consulte le diagnostic ci-dessus\n"
+                f"└─────────────────────"
+            )
         else:
-            answer = "❌ Capture non trouvée"
+            _send_msg(f"❌ Capture #{capture_id} non trouvée")
+    elif action == "detail":
+        captures = db.get_client_captures(client_id, 50)
+        capture = next((c for c in captures if str(c["id"]) == capture_id), None)
+        if capture:
+            answer = (
+                f"🔍 *Détails #{capture_id}*\n"
+                f"• Type : {capture['error_type']}\n"
+                f"• Message : {capture['error_message'][:200] or '?'}\n"
+                f"• URL : {capture['url'] or '/'}\n"
+                f"• Status : {capture.get('nexus_status', 'pending')}\n"
+                f"• {capture['created_at']}"
+            )
+            _send_msg(answer)
+        else:
+            _send_msg(f"❌ Capture #{capture_id} non trouvée")
     else:
-        answer = "❌ Action inconnue"
-
-    # Answer callback (dismiss loading)
-    payload = j.dumps({"callback_query_id": callback.get("id", ""), "text": answer, "show_alert": False}).encode()
-    try:
-        uo(Req(
-            TELEGRAM_API.format(token=bot_token, method="answerCallbackQuery"),
-            data=payload, headers={"Content-Type": "application/json"}
-        ), timeout=5)
-    except Exception:
-        pass
+        _send_msg("❌ Action inconnue")
 
 
 def _handle_start_command(bot_token: str, message: dict):
@@ -267,7 +441,7 @@ def send_slack(webhook_url: str, error_type: str, error_message: str, url: str, 
                 "elements": [
                     {"type": "button", "text": {"type": "plain_text", "text": "✅ Corriger"}, "value": f"fix:{client_id}:{capture_id}"},
                     {"type": "button", "text": {"type": "plain_text", "text": "📄 Rapport"}, "value": f"report:{client_id}:{capture_id}"},
-                    {"type": "button", "text": {"type": "plain_text", "text": "🔍 Détails"}, "url": f"https://nexus-hub.com/dashboard/{client_id}/captures/{capture_id}"},
+                    {"type": "button", "text": {"type": "plain_text", "text": "🔍 Détails"}, "value": f"detail:{client_id}:{capture_id}"},
                 ]
             }
         ]

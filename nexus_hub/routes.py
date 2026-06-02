@@ -131,6 +131,27 @@ def client_captures(client_id: str, limit: int = 50):
     return {"captures": captures, "count": len(captures)}
 
 
+@router.get("/{client_id}/captures/{capture_id}")
+def client_capture_detail(client_id: str, capture_id: int):
+    """Get a single capture's full details."""
+    captures = db.get_client_captures(client_id, 500)
+    capture = next((c for c in captures if c["id"] == capture_id), None)
+    if not capture:
+        raise HTTPException(404, "Capture non trouvée")
+    return {"capture": capture}
+
+
+@router.post("/{client_id}/captures/{capture_id}/report")
+def client_capture_ai_report(client_id: str, capture_id: int):
+    """Generate an AI diagnostic report for a capture using DeepSeek."""
+    captures = db.get_client_captures(client_id, 500)
+    capture = next((c for c in captures if c["id"] == capture_id), None)
+    if not capture:
+        raise HTTPException(404, "Capture non trouvée")
+    report = notify.generate_ai_report(capture)
+    return {"report": report}
+
+
 @router.get("/{client_id}/profile")
 def client_profile(client_id: str):
     """Get full client profile (for dashboard)."""
@@ -250,6 +271,7 @@ async def telegram_webhook(request: Request):
     if callback:
         data = callback.get("data", "")
         chat_id = str(callback.get("from", {}).get("id", ""))
+        msg_chat = callback.get("message", {}).get("chat", {}).get("id", chat_id)
         msg_id = callback.get("message", {}).get("message_id")
 
         parts = data.split(":")
@@ -259,33 +281,87 @@ async def telegram_webhook(request: Request):
 
         logger.info("[Telegram] Callback: %s — client=%s capture=%s", action, client_id, capture_id)
 
+        bot_token = notify._get_config().get("telegram_bot_token", "")
+        if not bot_token:
+            return {"ok": False, "error": "No bot token"}
+
+        # Step 1: ACKNOWLEDGE IMMEDIATELY
+        import json as j
+        from urllib.request import Request as Req, urlopen
+        try:
+            ack = j.dumps({"callback_query_id": callback.get("id", ""), "text": "⏳", "show_alert": False}).encode()
+            urlopen(Req(f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+                       data=ack, headers={"Content-Type": "application/json"}), timeout=5)
+        except Exception:
+            pass
+
+        # Step 2: Build and send reply with progress
+        def _send_msg(text: str) -> int:
+            payload = j.dumps({
+                "chat_id": msg_chat, "text": text, "parse_mode": "Markdown",
+                "reply_to_message_id": msg_id,
+            }).encode()
+            try:
+                resp = urlopen(Req(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                   data=payload, headers={"Content-Type": "application/json"}), timeout=10)
+                result = j.loads(resp.read())
+                if result.get("ok"):
+                    return result["result"]["message_id"]
+            except Exception:
+                pass
+            return 0
+
+        def _edit_msg(msg_id: int, text: str):
+            payload = j.dumps({
+                "chat_id": msg_chat, "message_id": msg_id,
+                "text": text, "parse_mode": "Markdown",
+            }).encode()
+            try:
+                urlopen(Req(f"https://api.telegram.org/bot{bot_token}/editMessageText",
+                           data=payload, headers={"Content-Type": "application/json"}), timeout=10)
+            except Exception:
+                pass
+
         if action == "fix":
-            # TODO: trigger auto-fix
-            answer = "✅ Correction en cours... Le fix sera appliqué sous peu."
-        elif action == "report":
-            # Fetch the capture details
             captures = db.get_client_captures(client_id, 50)
             capture = next((c for c in captures if str(c["id"]) == capture_id), None)
             if capture:
-                answer = f"📄 *Rapport #{capture_id}*\nType: {capture['error_type']}\nMessage: {capture['error_message'][:200]}\nURL: {capture['url']}\nStatut: {capture['nexus_status']}"
+                mid = _send_msg("🛠️ **Génération du correctif...**\nDeepSeek analyse l'erreur et prépare un fix...")
+                fix = notify.generate_ai_fix(capture)
+                if mid:
+                    _edit_msg(mid, f"✅ *Correctif généré*\n\n{fix}")
+                else:
+                    _send_msg(fix)
             else:
-                answer = "❌ Capture non trouvée"
+                _send_msg(f"❌ Capture #{capture_id} non trouvée")
+        elif action == "report":
+            captures = db.get_client_captures(client_id, 50)
+            capture = next((c for c in captures if str(c["id"]) == capture_id), None)
+            if capture:
+                mid = _send_msg("🤖 **Analyse en cours...**\nDeepSeek diagnostique l'erreur...")
+                report = notify.generate_ai_report(capture)
+                if mid:
+                    _edit_msg(mid, report)
+                else:
+                    _send_msg(report)
+            else:
+                _send_msg(f"❌ Capture #{capture_id} non trouvée")
+        elif action == "detail":
+            captures = db.get_client_captures(client_id, 50)
+            capture = next((c for c in captures if str(c["id"]) == capture_id), None)
+            if capture:
+                _send_msg(
+                    f"🔍 *Détails #{capture_id}*\n"
+                    f"• Type : {capture['error_type']}\n"
+                    f"• Message : {capture['error_message'][:200] or '?'}\n"
+                    f"• URL : {capture['url'] or '/'}\n"
+                    f"• Status : {capture.get('nexus_status', 'pending')}\n"
+                    f"• {capture['created_at']}"
+                )
+            else:
+                _send_msg(f"❌ Capture #{capture_id} non trouvée")
         else:
-            answer = "❌ Action inconnue"
-
-        # Answer the callback query (dismiss loading on Telegram)
-        bot_token = notify._get_config().get("telegram_bot_token", "")
-        if bot_token:
-            import json as j
-            from urllib.request import Request as Req, urlopen
-            payload = j.dumps({"callback_query_id": callback.get("id", ""), "text": answer, "show_alert": False}).encode()
-            try:
-                urlopen(Req(
-                    f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
-                    data=payload, headers={"Content-Type": "application/json"}
-                ), timeout=5)
-            except Exception:
-                pass
+            _send_msg("❌ Action inconnue")
 
         return {"ok": True}
 
