@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS server_access (
+    client_id         TEXT PRIMARY KEY,
+    ssh_host          TEXT DEFAULT '',
+    ssh_port          INTEGER DEFAULT 22,
+    ssh_user          TEXT DEFAULT 'root',
+    ssh_key_encrypted TEXT DEFAULT '',
+    ssh_fingerprint   TEXT DEFAULT '',
+    updated_at        TEXT NOT NULL,
+    FOREIGN KEY (client_id) REFERENCES clients(client_id)
+);
+
 -- Admin settings
 INSERT OR IGNORE INTO settings (key, value) VALUES ('hub_name', 'Nexus Watch');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('hub_version', '0.1.0');
@@ -253,6 +264,82 @@ def get_client_stats(client_id: str) -> dict:
         resolved = row["resolved"] or 0
         rate = round((resolved / total * 100)) if total > 0 else 0
         return {"total": total, "resolved": resolved, "rate": rate, "open": total - resolved}
+    finally:
+        conn.close()
+
+
+# ─── Server access (SSH) operations ──────────────────────────────────────────
+
+import base64
+from cryptography.fernet import Fernet
+
+def _get_encryption_key() -> bytes:
+    """Get or derive the master encryption key for SSH keys."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='master_cipher_key'").fetchone()
+        if row:
+            return row["value"].encode()
+        # Generate new key
+        key = Fernet.generate_key()
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('master_cipher_key', ?)", (key.decode(),))
+        conn.commit()
+        return key
+    finally:
+        conn.close()
+
+
+def _encrypt(plaintext: str) -> str:
+    """Encrypt sensitive data (SSH keys)."""
+    if not plaintext:
+        return ""
+    key = _get_encryption_key()
+    f = Fernet(key)
+    return f.encrypt(plaintext.encode()).decode()
+
+
+def _decrypt(ciphertext: str) -> str:
+    """Decrypt sensitive data."""
+    if not ciphertext:
+        return ""
+    key = _get_encryption_key()
+    f = Fernet(key)
+    return f.decrypt(ciphertext.encode()).decode()
+
+
+def save_server_access(client_id: str, host: str = "", port: int = 22, user: str = "root", ssh_key: str = "") -> dict:
+    """Save SSH access info for a client."""
+    conn = get_db()
+    try:
+        now = _now()
+        encrypted_key = _encrypt(ssh_key) if ssh_key else ""
+        conn.execute(
+            "INSERT OR REPLACE INTO server_access (client_id, ssh_host, ssh_port, ssh_user, ssh_key_encrypted, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (client_id, host, port, user, encrypted_key, now),
+        )
+        conn.commit()
+        return {"success": True}
+    finally:
+        conn.close()
+
+
+def get_server_access(client_id: str) -> dict:
+    """Get SSH access info for a client (decrypted key)."""
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT ssh_host, ssh_port, ssh_user, ssh_key_encrypted FROM server_access WHERE client_id = ?",
+            (client_id,),
+        ).fetchone()
+        if not row:
+            return {}
+        return {
+            "host": row["ssh_host"],
+            "port": row["ssh_port"],
+            "user": row["ssh_user"],
+            "ssh_key": _decrypt(row["ssh_key_encrypted"]),
+        }
     finally:
         conn.close()
 

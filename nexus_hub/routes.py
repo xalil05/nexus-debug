@@ -8,6 +8,7 @@ from typing import Optional
 
 from . import db
 from . import notify
+from . import ssh
 
 logger = logging.getLogger("nexus.hub")
 router = APIRouter(prefix="/hub", tags=["hub"])
@@ -144,6 +145,52 @@ def client_profile(client_id: str):
         return dict(row)
     finally:
         conn.close()
+
+
+# ─── Routes — SSH Diagnostic ────────────────────────────────────────────────
+
+class SSHKeyUpdate(BaseModel):
+    host: str
+    port: int = 22
+    user: str = "root"
+    ssh_key: str
+
+
+@router.put("/{client_id}/ssh-key")
+def set_ssh_key(client_id: str, req: SSHKeyUpdate):
+    """Upload SSH private key for a client's server (Option B)."""
+    db.save_server_access(client_id, req.host, req.port, req.user, req.ssh_key)
+    return {"success": True, "message": "Clé SSH enregistrée (chiffrée au repos)"}
+
+
+@router.get("/{client_id}/ssh-status")
+def ssh_status(client_id: str):
+    """Check if SSH access is configured."""
+    access = db.get_server_access(client_id)
+    if not access or not access.get("host"):
+        return {"configured": False}
+    return {"configured": True, "host": access["host"], "user": access["user"], "port": access["port"]}
+
+
+@router.post("/{client_id}/diagnose")
+def diagnose(client_id: str):
+    """Run full SSH diagnostic on the client's server."""
+    result = ssh.diagnose(client_id)
+    if not result["success"]:
+        from fastapi import HTTPException as HE
+        raise HE(400, result.get("error", "Diagnostic échoué"))
+    return result
+
+
+class CustomCommand(BaseModel):
+    command: str
+
+
+@router.post("/{client_id}/diagnose/command")
+def run_command(client_id: str, req: CustomCommand):
+    """Run a custom command via SSH on the client's server."""
+    result = ssh.run_custom_command(client_id, req.command)
+    return result
 
 
 # ─── Routes — Admin config ──────────────────────────────────────────────────
