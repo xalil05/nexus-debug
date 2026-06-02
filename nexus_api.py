@@ -434,6 +434,11 @@ if FRONTEND_DIR.exists():
     app.mount("/dashboard", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="dashboard")
     logger.info("Dashboard frontend monté sur /dashboard depuis {}", FRONTEND_DIR)
 
+# ── Nexus Hub (multi-tenant) ──────────────────────────
+from nexus_hub.routes import router as hub_router
+app.include_router(hub_router)
+logger.info("Nexus Hub monté (capture + multi-tenant)")
+
 # ── Middleware & config ───────────────────────────────
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
