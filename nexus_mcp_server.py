@@ -85,31 +85,91 @@ async def search_code(query: str, path: str = "") -> str:
 @mcp.tool()
 async def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> str:
     """Exécute du code Python court dans un environnement isolé (Python uniquement)."""
+    import ast
+    import io
+    import sys
+
     if language != "python":
         return json.dumps({"status": "error", "error": "Seul le langage 'python' est autorisé pour la sécurité"})
-    # Bloque les imports système dangereux
-    dangerous = ["import os", "subprocess", "__import__", "open(", "exec(", "eval("]
-    if any(d in code for d in dangerous):
-        return json.dumps({"status": "error", "error": "Code contenant des opérations système interdites"})
-    try:
-        r = await async_run_mcp_subprocess(
-            ["python", "-c", code],
-            timeout=timeout,
-        )
 
-        logger.debug("sandbox_execute ({}) — exit {}", language, r.returncode)
-        return json.dumps(
-            {
-                "status": "success" if r.returncode == 0 else "error",
-                "stdout": r.stdout[:2000],
-                "stderr": r.stderr[:2000],
-                "exit_code": r.returncode,
-            }
+    # 1. Parse AST pour bloquer les patterns dangereux structurellement
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return json.dumps({"status": "error", "error": f"Erreur de syntaxe: {e}"})
+
+    DANGEROUS_MODULES = {"os", "subprocess", "sys", "shutil", "ctypes",
+                         "socket", "requests", "httpx", "importlib", "builtins"}
+    DANGEROUS_FUNCS  = {"exec", "eval", "compile", "open", "__import__",
+                        "breakpoint", "memoryview"}
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in DANGEROUS_MODULES:
+                    return json.dumps({"status": "error",
+                                       "error": f"Module non autorisé: {alias.name}"})
+        if isinstance(node, ast.Call):
+            fn = node.func
+            if isinstance(fn, ast.Name) and fn.id in DANGEROUS_FUNCS:
+                return json.dumps({"status": "error",
+                                   "error": f"Fonction interdite: {fn.id}()"})
+            # builtins.xxx() pattern
+            if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
+                if fn.value.id == "builtins" and fn.attr in DANGEROUS_FUNCS:
+                    return json.dumps({"status": "error",
+                                       "error": f"builtins.{fn.attr}() interdit"})
+
+    # 2. Exécution dans un namespace restreint (pas de subprocess)
+    safe_builtins = {
+        name: getattr(__builtins__, name) if hasattr(__builtins__, name) else __builtins__[name]
+        for name in [
+            "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
+            "chr", "complex", "dict", "divmod", "enumerate", "filter", "float",
+            "format", "frozenset", "getattr", "hasattr", "hash", "hex", "id",
+            "int", "isinstance", "issubclass", "iter", "len", "list", "map",
+            "max", "min", "next", "object", "oct", "ord", "pow", "print",
+            "range", "repr", "reversed", "round", "set", "slice", "sorted",
+            "str", "sum", "tuple", "type", "zip",
+        ]
+    } if isinstance(__builtins__, dict) else {
+        name: getattr(__builtins__, name)
+        for name in [
+            "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
+            "chr", "complex", "dict", "divmod", "enumerate", "filter", "float",
+            "format", "frozenset", "getattr", "hasattr", "hash", "hex", "id",
+            "int", "isinstance", "issubclass", "iter", "len", "list", "map",
+            "max", "min", "next", "object", "oct", "ord", "pow", "print",
+            "range", "repr", "reversed", "round", "set", "slice", "sorted",
+            "str", "sum", "tuple", "type", "zip",
+        ]
+    }
+    namespace = {"__builtins__": safe_builtins}
+
+    try:
+        # Timeout avec asyncio.wait_for
+        loop = asyncio.get_event_loop()
+
+        def _exec():
+            buf_out, buf_err = io.StringIO(), io.StringIO()
+            old_out, old_err = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = buf_out, buf_err
+            try:
+                exec(code, namespace)
+            finally:
+                sys.stdout, sys.stderr = old_out, old_err
+            return buf_out.getvalue()[:2000], buf_err.getvalue()[:2000]
+
+        stdout, stderr = await asyncio.wait_for(
+            loop.run_in_executor(None, _exec), timeout=timeout
         )
-    except subprocess.TimeoutExpired:
+        return json.dumps({
+            "status": "success", "stdout": stdout, "stderr": stderr, "exit_code": 0,
+        })
+    except asyncio.TimeoutError:
         return json.dumps({"status": "error", "error": "Timeout dépassé"})
     except Exception as e:
-        logger.warning("sandbox_execute error: {}", e)
         return json.dumps({"status": "error", "error": str(e)})
 
 
