@@ -33,5 +33,9 @@ Thumbs.db
 .env.production
 !env.example
 
+# Data / DB
+data/*.db
+data/*.sqlite
+
 # Logs
 *.log
