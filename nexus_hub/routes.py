@@ -65,6 +65,7 @@ def login(req: LoginRequest):
     return {
         "client_id": client["client_id"],
         "email": client["email"],
+        "api_key": client.get("api_key", ""),
         "project": client["project"],
         "plan": client["plan"],
         "created_at": client["created_at"],

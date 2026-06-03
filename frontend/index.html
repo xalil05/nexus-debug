@@ -3,115 +3,190 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus-Debug Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <title>Nexus Hub</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Global page entrance -->
-    <div class="page-wrapper">
-        <nav class="sidebar animate-slide-in" style="animation-delay: 0.05s">
-            <div class="logo">
-                <span class="logo-icon">🧬</span>
-                <span class="logo-text">Nexus-Debug</span>
+
+<!-- ═══════ LOGIN PAGE ═══════ -->
+<div id="login-page" class="login-page">
+    <div class="login-box">
+        <div class="login-logo">
+            <span class="logo-icon">🔗</span>
+            <h1>Nexus Hub</h1>
+            <p>Portail client — Surveillez vos erreurs en temps réel</p>
+        </div>
+        <div class="error-msg" id="login-error"></div>
+        <div class="success-msg" id="login-success"></div>
+
+        <!-- Login form (default) -->
+        <div id="login-form">
+            <div class="form-group">
+                <label>📧 Email</label>
+                <input type="email" id="login-email" placeholder="vous@exemple.com">
             </div>
-            <div class="nav-items">
-                <div class="nav-indicator" id="nav-indicator"></div>
-                <a href="#" class="nav-item active" data-view="dashboard">📊 Dashboard</a>
-                <a href="#" class="nav-item" data-view="tasks">📋 Bugs</a>
-                <a href="#" class="nav-item" data-view="analytics">📈 Analytics</a>
-                <a href="#" class="nav-item" data-view="settings">⚙️ Settings</a>
+            <div class="form-group">
+                <label>🔑 Mot de passe</label>
+                <input type="password" id="login-password" placeholder="••••••••" onkeydown="if(event.key==='Enter') doLogin()">
             </div>
-            <div class="nav-footer" id="nav-footer">
-                <div class="status-dot" id="status-dot"></div>
-                <span id="status-text">Connexion...</span>
+            <button class="btn btn-primary" onclick="doLogin()">Se connecter</button>
+            <div class="form-footer">
+                Pas encore de compte ? <a onclick="showRegister()">Créer un compte</a>
             </div>
-        </nav>
+        </div>
 
-        <main class="main-content">
-            <!-- Dashboard View -->
-            <div id="view-dashboard" class="view active">
-                <header class="view-header animate-fade-up" style="animation-delay: 0.15s">
-                    <h1>Dashboard</h1>
-                    <div class="header-actions">
-                        <button class="btn btn-primary ripple-btn" onclick="refreshAll()">🔄 Actualiser</button>
-                    </div>
-                </header>
-
-                <div class="stats-grid" id="stats-grid">
-                    <div class="stat-card animate-fade-up stagger" data-index="0"><div class="stat-value counter" id="stat-total" data-target="0">—</div><div class="stat-label">Total Bugs</div></div>
-                    <div class="stat-card animate-fade-up stagger" data-index="1"><div class="stat-value counter" id="stat-fixed" data-target="0">—</div><div class="stat-label">Résolus</div></div>
-                    <div class="stat-card animate-fade-up stagger" data-index="2"><div class="stat-value counter" id="stat-rate" data-target="0">—</div><div class="stat-label">Taux de succès</div></div>
-                    <div class="stat-card animate-fade-up stagger" data-index="3"><div class="stat-value counter" id="stat-open" data-target="0">—</div><div class="stat-label">En cours</div></div>
-                </div>
-
-                <div class="chart-container animate-fade-up" style="animation-delay: 0.45s">
-                    <canvas id="chart-bugs"></canvas>
-                </div>
-
-                <div class="recent-bugs animate-fade-up" style="animation-delay: 0.55s">
-                    <h2>Bugs récents</h2>
-                    <div id="recent-table" class="skeleton-container"></div>
-                </div>
+        <!-- Register form (hidden) -->
+        <div id="register-form" style="display:none">
+            <div class="form-group">
+                <label>📧 Email</label>
+                <input type="email" id="reg-email" placeholder="vous@exemple.com">
             </div>
-
-            <!-- Tasks View -->
-            <div id="view-tasks" class="view">
-                <header class="view-header">
-                    <h1>Bugs</h1>
-                    <div class="filters">
-                        <select id="filter-status" onchange="loadTasks()">
-                            <option value="">Tous les statuts</option>
-                            <option value="en_attente">En attente</option>
-                            <option value="en_cours">En cours</option>
-                            <option value="termine">Terminé</option>
-                            <option value="erreur">Erreur</option>
-                        </select>
-                        <select id="filter-priority" onchange="loadTasks()">
-                            <option value="">Toutes priorités</option>
-                            <option value="P0">P0 — Bloquant</option>
-                            <option value="P1">P1 — Haute</option>
-                            <option value="P2">P2 — Normale</option>
-                            <option value="P3">P3 — Basse</option>
-                        </select>
-                        <input type="text" id="filter-version" placeholder="Filtrer par version..." oninput="loadTasks()">
-                        <button class="btn btn-primary ripple-btn" onclick="loadTasks()">🔍</button>
-                    </div>
-                </header>
-                <div id="tasks-table" class="skeleton-container"></div>
+            <div class="form-group">
+                <label>🏷️ Projet</label>
+                <input type="text" id="reg-project" placeholder="Mon Projet">
             </div>
-
-            <!-- Analytics View -->
-            <div id="view-analytics" class="view">
-                <header class="view-header">
-                    <h1>Analytics</h1>
-                </header>
-                <div class="charts-grid">
-                    <div class="chart-container animate-fade-up stagger" data-index="0"><h2>Priorités</h2><canvas id="chart-priority"></canvas></div>
-                    <div class="chart-container animate-fade-up stagger" data-index="1"><h2>Statuts</h2><canvas id="chart-status"></canvas></div>
-                    <div class="chart-container animate-fade-up stagger" data-index="2"><h2>Par version</h2><canvas id="chart-by-version"></canvas></div>
-                    <div class="chart-container animate-fade-up stagger" data-index="3"><h2>Temps de résolution</h2><canvas id="chart-fix-time"></canvas></div>
-                </div>
+            <div class="form-group">
+                <label>🔑 Mot de passe (min 6 car.)</label>
+                <input type="password" id="reg-password" placeholder="••••••••">
             </div>
-
-            <!-- Settings View -->
-            <div id="view-settings" class="view">
-                <header class="view-header">
-                    <h1>Configuration</h1>
-                </header>
-                <div class="settings-grid" id="settings-grid"></div>
+            <div class="form-group">
+                <label>🔐 Confirmer</label>
+                <input type="password" id="reg-confirm" placeholder="••••••••" onkeydown="if(event.key==='Enter') doRegister()">
             </div>
-        </main>
-    </div>
-
-    <!-- Modal -->
-    <div id="modal" class="modal hidden" onclick="closeModal(event)">
-        <div class="modal-content animate-scale-in">
-            <span class="modal-close" onclick="closeModal()">&times;</span>
-            <div id="modal-body"></div>
+            <button class="btn btn-primary" onclick="doRegister()">Créer mon compte</button>
+            <div class="form-footer">
+                Déjà inscrit ? <a onclick="showLogin()">Se connecter</a>
+            </div>
         </div>
     </div>
+</div>
 
-    <script src="app.js"></script>
+<!-- ═══════ APP (after login) ═══════ -->
+<div id="app-page" class="app-page">
+    <nav class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">🔗</span>
+            <h2>Nexus Hub</h2>
+        </div>
+        <div class="nav-items">
+            <div class="nav-item active" data-view="dashboard" onclick="switchView('dashboard', this)">
+                📊 <span>Dashboard</span>
+            </div>
+            <div class="nav-item" data-view="captures" onclick="switchView('captures', this)">
+                🐛 <span>Captures</span>
+            </div>
+            <div class="nav-item" data-view="notifications" onclick="switchView('notifications', this)">
+                🔔 <span>Notifications</span>
+            </div>
+            <div class="nav-item" data-view="profile" onclick="switchView('profile', this)">
+                👤 <span>Profil</span>
+            </div>
+        </div>
+        <div class="nav-footer">
+            <span id="nav-client-email"></span>
+            <br>
+            <a onclick="doLogout()" style="cursor:pointer;color:var(--text-muted);font-size:11px;">Déconnexion</a>
+        </div>
+    </nav>
+
+    <main class="main-content">
+
+        <!-- Dashboard View -->
+        <div id="view-dashboard" class="view active">
+            <div class="view-header">
+                <div>
+                    <h1>Dashboard</h1>
+                    <p id="dashboard-project"></p>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="loadDashboard()">🔄</button>
+            </div>
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card blue"><div class="stat-value" id="stat-total">—</div><div class="stat-label">Total Captures</div></div>
+                <div class="stat-card green"><div class="stat-value" id="stat-resolved">—</div><div class="stat-label">Résolues</div></div>
+                <div class="stat-card red"><div class="stat-value" id="stat-open">—</div><div class="stat-label">Ouvertes</div></div>
+                <div class="stat-card cyan"><div class="stat-value" id="stat-rate">—</div><div class="stat-label">Taux Résolution</div></div>
+            </div>
+            <h2 style="font-size:16px;margin-bottom:12px;color:var(--text-secondary);">🕐 Dernières captures</h2>
+            <div class="table-wrap" id="recent-captures"></div>
+        </div>
+
+        <!-- Captures View -->
+        <div id="view-captures" class="view">
+            <div class="view-header">
+                <h1>🐛 Captures</h1>
+                <button class="btn btn-sm btn-primary" onclick="loadCaptures()">🔄</button>
+            </div>
+            <div class="table-wrap" id="captures-table"></div>
+        </div>
+
+        <!-- Notifications View -->
+        <div id="view-notifications" class="view">
+            <div class="view-header">
+                <h1>🔔 Notifications</h1>
+            </div>
+            <div class="detail-card" style="max-width:500px">
+                <h3>📱 Telegram</h3>
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+                    1. Envoyez <code>/start VOTRE_CLIENT_ID</code> au bot <strong>@xaliln8nbot</strong><br>
+                    2. Le chat sera lié automatiquement
+                </p>
+                <div class="form-group">
+                    <label>Chat ID Telegram (ou laissez le bot le faire)</label>
+                    <input type="text" id="notif-telegram" placeholder="7312364847">
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="saveNotifications()">💾 Enregistrer</button>
+                <div id="notif-status" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
+            </div>
+            <div class="detail-card" style="max-width:500px;opacity:0.5">
+                <h3>💬 WhatsApp <span class="badge badge-pending">Bientôt</span></h3>
+                <p style="font-size:13px;color:var(--text-secondary);">À venir</p>
+            </div>
+        </div>
+
+        <!-- Profile View -->
+        <div id="view-profile" class="view">
+            <div class="view-header">
+                <h1>👤 Profil</h1>
+            </div>
+            <div class="detail-card" style="max-width:500px">
+                <h3>Informations du compte</h3>
+                <div class="meta-grid">
+                    <div class="meta-item"><div class="label">Client ID</div><div class="value" id="profile-id">—</div></div>
+                    <div class="meta-item"><div class="label">Email</div><div class="value" id="profile-email">—</div></div>
+                    <div class="meta-item"><div class="label">Projet</div><div class="value" id="profile-project">—</div></div>
+                    <div class="meta-item"><div class="label">Plan</div><div class="value" id="profile-plan">—</div></div>
+                    <div class="meta-item"><div class="label">Depuis</div><div class="value" id="profile-created">—</div></div>
+                </div>
+            </div>
+            <div class="detail-card" style="max-width:500px">
+                <h3>🔑 Clé API</h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+                    Utilisez cette clé dans votre fichier <code>.env</code> pour watch-py
+                </p>
+                <div class="api-key-display">
+                    <code id="profile-api-key">••••••••</code>
+                    <button class="btn btn-sm" onclick="document.getElementById('profile-api-key').textContent!=='••••••••' ? navigator.clipboard?.writeText(document.getElementById('profile-api-key').textContent) : showApiKey()">
+                        📋
+                    </button>
+                    <button class="btn btn-sm" id="show-key-btn" onclick="showApiKey()">👁️</button>
+                </div>
+            </div>
+            <div class="detail-card" style="max-width:500px">
+                <h3>⚙️ watch-py .env</h3>
+                <pre id="env-example" style="background:var(--bg-card);padding:16px;border-radius:var(--radius-sm);font-size:12px;">Connectez-vous pour voir</pre>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ═══════ MODAL ═══════ -->
+<div id="modal" class="modal hidden" onclick="if(event.target===this)closeModal()">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal()">&times;</span>
+        <div id="modal-body"></div>
+    </div>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>

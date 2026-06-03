@@ -8,7 +8,7 @@
 # ── LLM Provider ─────────────────────────────────────────────────────────────
 llm:
   provider: deepseek          # deepseek | openai | openrouter | anthropic
-  model: deepseek-chat        # ou gpt-4o, claude-sonnet-4-20250514, etc.
+  model: deepseek-v4-pro        # ou gpt-4o, claude-sonnet-4-20250514, etc.
   api_keys:
     deepseek: ""              # Clé DeepSeek
     openai: ""                # Clé OpenAI

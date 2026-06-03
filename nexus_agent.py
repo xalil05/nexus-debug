@@ -99,11 +99,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
-NEXUS_MODEL = os.getenv("NEXUS_MODEL", "deepseek-chat")
+NEXUS_MODEL = os.getenv("NEXUS_MODEL", "deepseek-v4-pro")
 
 # Modèles par défaut par provider
 PROVIDER_DEFAULTS = {
-    "deepseek": {"model": "deepseek-chat", "base_url": "https://api.deepseek.com/v1", "api_key": DEEPSEEK_API_KEY},
+    "deepseek": {"model": "deepseek-v4-pro", "base_url": "https://api.deepseek.com/v1", "api_key": DEEPSEEK_API_KEY},
     "openai": {"model": "gpt-4o", "base_url": "https://api.openai.com/v1", "api_key": OPENAI_API_KEY},
     "openrouter": {"model": "openai/gpt-4o", "base_url": "https://openrouter.ai/api/v1", "api_key": OPENROUTER_API_KEY},
 }

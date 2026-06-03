@@ -218,9 +218,74 @@ curl -X POST http://localhost:9001/hub/admin/config \
 
 ## 📦 Dépendances
 
-- **Python ≥3.11** : bcrypt, FastAPI, LangGraph, paramiko, cryptography
-- **Services** : Caddy, Prometheus, Grafana
-- **LLM** : DeepSeek (par défaut), OpenAI, Anthropic, Ollama (fallback)
+### Python (production)
+
+| Dépendance | Version min | Rôle |
+|---|---|---|
+| `langgraph` | ≥0.2.0 | Orchestration agent ReAct |
+| `langchain-openai` | ≥0.2.0 | Interface LLM OpenAI-compatible |
+| `langchain-core` | ≥0.3.0 | Framework LangChain |
+| `openai` | ≥1.0.0 | Client LLM |
+| `fastapi` | ≥0.100.0 | API REST |
+| `uvicorn[standard]` | ≥0.20.0 | Serveur ASGI |
+| `pydantic` | ≥2.0.0 | Validation données |
+| `pyyaml` | ≥6.0 | Base de connaissance YAML |
+| `httpx` | ≥0.24.0 | Requêtes HTTP (captures, IA) |
+| `loguru` | ≥0.7.0 | Logging structuré |
+| `aiosqlite` | ≥0.19.0 | Base SQLite asynchrone |
+| `slowapi` | ≥0.1.9 | Rate limiting |
+| `prometheus-client` | ≥0.20.0 | Métriques |
+| `aiofiles` | ≥23.0.0 | I/O fichiers asynchrone |
+| `paramiko` | ≥3.0.0 | Diagnostic SSH (Option B) |
+| `cryptography` | ≥41.0.0 | Chiffrement Fernet (AES-128-CBC) |
+| `bcrypt` | ≥4.0.0 | Hash mots de passe |
+
+### Python (développement)
+
+| Dépendance | Version min | Rôle |
+|---|---|---|
+| `pytest` | ≥7.0 | Tests |
+| `pytest-asyncio` | ≥0.21 | Tests asynchrones |
+| `pytest-cov` | ≥4.0 | Couverture |
+| `pytest-timeout` | ≥2.3 | Timeout tests |
+| `ruff` | ≥0.3.0 | Linter/Formatter |
+| `mypy` | ≥1.0 | Typage statique |
+| `pre-commit` | ≥3.0 | Hooks git |
+
+### Infra / Services
+
+| Service | Version | Rôle |
+|---|---|---|
+| **Docker** | ≥24 | Conteneurisation |
+| **Docker Compose** | v2 | Orchestration multi-services |
+| **Caddy** | 2.x | Reverse proxy HTTPS |
+| **Prometheus** | latest | Métriques système |
+| **Grafana** | latest | Dashboard monitoring |
+
+### LLM supportés
+
+| Provider | Statut |
+|---|---|
+| DeepSeek (via API OpenAI-compatible) | ✅ **Défaut** |
+| OpenAI | ✅ Fallback |
+| Anthropic | ✅ Fallback |
+| Ollama (local) | ✅ Fallback |
+
+### Installation rapide
+
+```bash
+# Cloner
+git clone https://github.com/xalil05/nexus-debug.git
+cd nexus-debug
+
+# Python ≥3.11 requis
+pip install -e .                     # production
+pip install -e ".[dev]"              # développement (tests, lint)
+
+# Lancer
+cp .env.example .env                 # configurer DEEPSEEK_API_KEY
+docker compose up -d                 # ou lancer manuellement
+```
 
 ---
 

@@ -1,15 +1,4 @@
-"""
-Nexus-Debug — Config Loader.
-
-Charge la configuration depuis nexus-config.yaml.
-Priorité : YAML > variables d'env > valeurs par défaut.
-
-Usage:
-    from nexus_config import config
-    print(config.llm.provider)   # "deepseek"
-    print(config.api.port)       # 9001
-    print(config.capture.url)    # "http://nexus-debug:9001"
-"""
+"""\nNexus-Debug — Config Loader.\n\n📌 GARDÉ POUR USAGE FUTUR — pas encore branché.\nCharge la configuration depuis nexus-config.yaml.\nPriorité : YAML > variables d'env > valeurs par défaut.\n\nUsage:\n    from nexus_config import config\n    print(config.llm.provider)   # "deepseek"\n    print(config.api.port)       # 9001\n    print(config.capture.url)    # "http://nexus-debug:9001"\n\nQuand branché, remplacer les os.getenv() éparpillés par config.llm.api_keys.deepseek\netc. Voir nexus_api.py:lifespan() pour les vars à migrer.\n"""
 from __future__ import annotations
 
 import os

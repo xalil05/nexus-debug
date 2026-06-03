@@ -1,560 +1,356 @@
-/* Nexus-Debug Dashboard — Application + Animations */
+/* Nexus Hub Dashboard — Client Portal */
 const API_BASE = '';
 
-// ─── State ─────────────────────────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────────
 let state = {
-    tasks: [],
-    health: null,
-    chartBugs: null,
-    chartPriority: null,
-    chartStatus: null,
-    chartVersion: null,
-    chartFixTime: null,
-    animating: false,
+    clientId: sessionStorage.getItem('nexus_client_id') || '',
+    email: sessionStorage.getItem('nexus_email') || '',
+    project: sessionStorage.getItem('nexus_project') || '',
+    plan: sessionStorage.getItem('nexus_plan') || '',
+    apiKey: sessionStorage.getItem('nexus_api_key') || '',
 };
 
-// ─── API Calls ──────────────────────────────────────────────────────────────
-async function apiGet(path) {
-    const resp = await fetch(`${API_BASE}${path}`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-    return resp.json();
-}
-
-async function loadHealth() {
-    try {
-        state.health = await apiGet('/health');
-        const dot = document.getElementById('status-dot');
-        const txt = document.getElementById('status-text');
-        dot.className = 'status-dot online';
-        txt.textContent = `🧬 ${state.health.llm?.provider || '?'} • ${state.health.version}`;
-        return true;
-    } catch (e) {
-        document.getElementById('status-dot').className = 'status-dot offline';
-        document.getElementById('status-text').textContent = '❌ Hors ligne';
-        return false;
-    }
-}
-
-async function loadTasks() {
-    try {
-        const statusFilter = document.getElementById('filter-status')?.value || '';
-        const priorityFilter = document.getElementById('filter-priority')?.value || '';
-        const versionFilter = document.getElementById('filter-version')?.value?.toLowerCase() || '';
-
-        const data = await apiGet('/tasks?limit=100');
-        let tasks = data.tasks || [];
-
-        if (statusFilter) tasks = tasks.filter(t => t.status === statusFilter);
-        if (priorityFilter) tasks = tasks.filter(t => t.priority === priorityFilter);
-        if (versionFilter) {
-            tasks = tasks.filter(t => {
-                const v = (t.result?.version || '').toLowerCase();
-                const b = (t.brief || '').toLowerCase();
-                return v.includes(versionFilter) || b.includes(versionFilter);
-            });
-        }
-
-        state.tasks = tasks;
-        return tasks;
-    } catch (e) {
-        console.error('loadTasks error:', e);
-        state.tasks = [];
-        return [];
-    }
-}
-
-// ─── Counter Animation ─────────────────────────────────────────────────────
-function animateCounter(el, target, duration = 800) {
-    if (!el) return;
-    const start = performance.now();
-    const from = 0;
-
-    function update(now) {
-        const elapsed = now - start;
-        const progress = Math.min(elapsed / duration, 1);
-        // Ease out cubic
-        const eased = 1 - Math.pow(1 - progress, 3);
-        const current = Math.round(from + (target - from) * eased);
-        el.textContent = target > 0 && !el.dataset.isPercent ? current : (current + '%');
-        if (target === current && progress >= 1) {
-            el.textContent = target;
-            if (el.dataset.isPercent) el.textContent = target + '%';
-            // Count pulse
-            el.style.animation = 'none';
-            el.offsetHeight; // reflow
-            el.style.animation = 'countPulse 0.4s ease forwards';
-        }
-        if (progress < 1) {
-            requestAnimationFrame(update);
-        }
-    }
-    requestAnimationFrame(update);
-}
-
-// ─── Staggered Entrance ────────────────────────────────────────────────────
-function applyStagger() {
-    const staggerEls = document.querySelectorAll('.stagger');
-    staggerEls.forEach((el, i) => {
-        const delay = 0.15 + (parseInt(el.dataset.index || i) * 0.08);
-        el.style.animationDelay = `${delay}s`;
-        el.classList.add('animate-fade-up');
-    });
-}
-
-// ─── Skeleton Loading ──────────────────────────────────────────────────────
-function showSkeleton(container, type = 'rows', count = 5) {
-    const el = typeof container === 'string' ? document.getElementById(container) : container;
-    if (!el) return;
-    if (type === 'rows') {
-        el.innerHTML = Array(count).fill(0).map(() => 
-            '<div class="skeleton skeleton-row"></div>'
-        ).join('');
+// ─── Router ───────────────────────────────────────────────────
+function showPage() {
+    if (state.clientId) {
+        document.getElementById('login-page').style.display = 'none';
+        document.getElementById('app-page').classList.add('active');
+        document.getElementById('nav-client-email').textContent = state.email;
+        loadDashboard();
     } else {
-        el.innerHTML = Array(count).fill(0).map(() => 
-            '<div class="skeleton skeleton-card"></div>'
-        ).join('');
+        document.getElementById('login-page').style.display = 'flex';
+        document.getElementById('app-page').classList.remove('active');
     }
 }
 
-// ─── Stats with Counter ────────────────────────────────────────────────────
-function updateStats(tasks) {
-    const total = tasks.length;
-    const fixed = tasks.filter(t => t.status === 'termine').length;
-    const open = tasks.filter(t => t.status === 'en_attente' || t.status === 'en_cours').length;
-    const rate = total > 0 ? Math.round((fixed / total) * 100) : 0;
+// ─── Login / Register ─────────────────────────────────────────
+function showRegister() {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+    hideMsg();
+}
+function showLogin() {
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('register-form').style.display = 'none';
+    hideMsg();
+}
+function hideMsg() {
+    document.getElementById('login-error').style.display = 'none';
+    document.getElementById('login-success').style.display = 'none';
+}
 
-    const totalEl = document.getElementById('stat-total');
-    const fixedEl = document.getElementById('stat-fixed');
-    const rateEl = document.getElementById('stat-rate');
-    const openEl = document.getElementById('stat-open');
+async function doLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) return showError('Email et mot de passe requis');
 
-    animateCounter(totalEl, total);
-    animateCounter(fixedEl, fixed);
-    rateEl.dataset.isPercent = '1';
-    animateCounter(rateEl, rate);
-    animateCounter(openEl, open);
+    try {
+        const resp = await fetch(API_BASE + '/hub/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) return showError(data.detail || 'Erreur de connexion');
 
-    const rateCard = rateEl.parentElement;
-    rateCard.className = `stat-card ${rate >= 70 ? 'success' : rate >= 40 ? 'warning' : 'danger'}`;
+        // Save session
+        state.clientId = data.client_id;
+        state.email = data.email;
+        state.project = data.project || '';
+        state.plan = data.plan || '';
+        state.apiKey = data.api_key || '';
+        sessionStorage.setItem('nexus_client_id', state.clientId);
+        sessionStorage.setItem('nexus_email', state.email);
+        sessionStorage.setItem('nexus_project', state.project);
+        sessionStorage.setItem('nexus_plan', state.plan);
+        if (state.apiKey) sessionStorage.setItem('nexus_api_key', state.apiKey);
 
-    // Bordure animée conditionnelle
-    if (rate >= 70) {
-        rateCard.style.setProperty('--card-accent', 'var(--accent-cyan)');
-    } else if (rate >= 40) {
-        rateCard.style.setProperty('--card-accent', 'var(--accent-warm)');
-    } else {
-        rateCard.style.setProperty('--card-accent', '#ff4444');
+        showPage();
+    } catch (e) {
+        showError('Erreur réseau: ' + e.message);
     }
 }
 
-// ─── Charts ─────────────────────────────────────────────────────────────────
-function renderBugsChart(tasks) {
-    const ctx = document.getElementById('chart-bugs').getContext('2d');
-    if (state.chartBugs) { state.chartBugs.destroy(); }
+async function doRegister() {
+    const email = document.getElementById('reg-email').value.trim();
+    const project = document.getElementById('reg-project').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const confirm = document.getElementById('reg-confirm').value;
+    if (!email || !password) return showError('Email et mot de passe requis');
+    if (password !== confirm) return showError('Les mots de passe ne correspondent pas');
+    if (password.length < 6) return showError('Mot de passe trop court (min 6)');
 
-    const days = {};
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(Date.now() - i * 86400000);
-        const key = d.toISOString().split('T')[0];
-        days[key] = { submitted: 0, fixed: 0 };
-    }
-
-    tasks.forEach(t => {
-        const created = t.created_at?.split('T')[0];
-        if (created && days[created]) days[created].submitted++;
-        if (t.status === 'termine') {
-            const completed = t.completed_at?.split('T')[0];
-            if (completed && days[completed]) days[completed].fixed++;
-        }
-    });
-
-    const labels = Object.keys(days);
-    state.chartBugs = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels.map(d => d.slice(5)),
-            datasets: [
-                { 
-                    label: 'Soumis', 
-                    data: Object.values(days).map(d => d.submitted), 
-                    borderColor: '#139ce5', 
-                    backgroundColor: 'rgba(19, 156, 229, 0.05)',
-                    tension: 0.4, 
-                    fill: true,
-                    pointRadius: 3,
-                    pointHoverRadius: 6,
-                    borderWidth: 2,
-                },
-                { 
-                    label: 'Résolus', 
-                    data: Object.values(days).map(d => d.fixed), 
-                    borderColor: '#0de7ff', 
-                    backgroundColor: 'rgba(13, 231, 255, 0.05)',
-                    tension: 0.4, 
-                    fill: true,
-                    pointRadius: 3,
-                    pointHoverRadius: 6,
-                    borderWidth: 2,
-                },
-            ]
-        },
-        options: {
-            responsive: true,
-            animation: {
-                duration: 1000,
-                easing: 'easeOutQuart',
-            },
-            plugins: { 
-                legend: { 
-                    labels: { color: 'rgba(255,255,255,0.5)', font: { family: 'Inter Tight' } } 
-                } 
-            },
-            scales: {
-                x: { 
-                    ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } }, 
-                    grid: { color: 'rgba(255,255,255,0.03)' } 
-                },
-                y: { 
-                    ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } }, 
-                    grid: { color: 'rgba(255,255,255,0.03)' }, 
-                    beginAtZero: true 
-                },
-            }
-        }
-    });
-}
-
-function renderAnalyticsCharts(tasks) {
-    // Priority chart
-    const prioCtx = document.getElementById('chart-priority');
-    if (prioCtx) {
-        if (state.chartPriority) state.chartPriority.destroy();
-        const counts = {};
-        tasks.forEach(t => { counts[t.priority || 'P2'] = (counts[t.priority || 'P2'] || 0) + 1; });
-        const colors = { P0: '#ef5350', P1: '#ffa726', P2: '#139ce5', P3: '#6b7280' };
-        state.chartPriority = new Chart(prioCtx.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(counts),
-                datasets: [{ 
-                    data: Object.values(counts), 
-                    backgroundColor: Object.keys(counts).map(k => colors[k] || '#139ce5'),
-                    borderColor: 'rgba(8,8,7,0.5)',
-                    borderWidth: 2,
-                }]
-            },
-            options: { 
-                responsive: true,
-                animation: { duration: 800, easing: 'easeOutQuart' },
-                plugins: { 
-                    legend: { labels: { color: 'rgba(255,255,255,0.5)', font: { family: 'Inter Tight' } } } 
-                } 
-            }
+    try {
+        const resp = await fetch(API_BASE + '/hub/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, project }),
         });
-    }
+        const data = await resp.json();
+        if (!resp.ok) return showError(data.error || data.detail || 'Erreur inscription');
 
-    // Status chart
-    const statusCtx = document.getElementById('chart-status');
-    if (statusCtx) {
-        if (state.chartStatus) state.chartStatus.destroy();
-        const counts = { en_attente: 0, en_cours: 0, termine: 0, erreur: 0, awaiting_approval: 0 };
-        tasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
-        const colors = { en_attente: '#ffa726', en_cours: '#139ce5', termine: '#0de7ff', erreur: '#ef5350', awaiting_approval: '#a78bfa' };
-        state.chartStatus = new Chart(statusCtx.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: Object.keys(counts).filter(k => counts[k] > 0),
-                datasets: [{ 
-                    data: Object.keys(counts).filter(k => counts[k] > 0).map(k => counts[k]), 
-                    backgroundColor: Object.keys(counts).filter(k => counts[k] > 0).map(k => colors[k]),
-                    borderColor: 'rgba(8,8,7,0.5)',
-                    borderWidth: 2,
-                }]
-            },
-            options: { 
-                responsive: true,
-                animation: { duration: 800, easing: 'easeOutQuart' },
-                plugins: { 
-                    legend: { labels: { color: 'rgba(255,255,255,0.5)', font: { family: 'Inter Tight' } } } 
-                } 
-            }
-        });
-    }
-
-    // By version chart
-    const verCtx = document.getElementById('chart-by-version');
-    if (verCtx) {
-        if (state.chartVersion) state.chartVersion.destroy();
-        const versions = {};
-        tasks.forEach(t => {
-            const v = t.result?.version || 'unknown';
-            versions[v] = (versions[v] || 0) + 1;
-        });
-        const sorted = Object.entries(versions).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        state.chartVersion = new Chart(verCtx.getContext('2d'), {
-            type: 'bar',
-            data: {
-                labels: sorted.map(s => s[0]),
-                datasets: [{ 
-                    label: 'Bugs', 
-                    data: sorted.map(s => s[1]), 
-                    backgroundColor: 'rgba(19, 156, 229, 0.7)',
-                    borderRadius: 4,
-                    borderSkipped: false,
-                }]
-            },
-            options: {
-                responsive: true,
-                animation: { duration: 800, easing: 'easeOutQuart' },
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } } },
-                    y: { ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } }, beginAtZero: true }
-                }
-            }
-        });
-    }
-
-    // Fix time chart
-    const ftCtx = document.getElementById('chart-fix-time');
-    if (ftCtx) {
-        if (state.chartFixTime) state.chartFixTime.destroy();
-        const fixed = tasks.filter(t => t.status === 'termine' && t.created_at && t.completed_at);
-        const times = fixed.map(t => {
-            const created = new Date(t.created_at).getTime();
-            const completed = new Date(t.completed_at).getTime();
-            return Math.round((completed - created) / 60000);
-        }).filter(t => t > 0 && t < 1440);
-
-        if (times.length > 0) {
-            const avg = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
-            state.chartFixTime = new Chart(ftCtx.getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: ['Moyen', 'Min', 'Max'],
-                    datasets: [{
-                        label: 'Temps de résolution (min)',
-                        data: [avg, Math.min(...times), Math.max(...times)],
-                        backgroundColor: ['rgba(13, 231, 255, 0.7)', 'rgba(19, 156, 229, 0.7)', 'rgba(239, 83, 80, 0.7)'],
-                        borderRadius: 4,
-                        borderSkipped: false,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    animation: { duration: 800, easing: 'easeOutQuart' },
-                    plugins: { legend: { display: false } },
-                    scales: { 
-                        y: { beginAtZero: true, ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } } }, 
-                        x: { ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'Inter Tight' } } } 
-                    }
-                }
-            });
-        }
+        // Auto-login after register
+        state.clientId = data.client_id;
+        state.apiKey = data.api_key;
+        state.email = email;
+        state.project = project;
+        sessionStorage.setItem('nexus_client_id', state.clientId);
+        sessionStorage.setItem('nexus_email', state.email);
+        sessionStorage.setItem('nexus_project', state.project);
+        sessionStorage.setItem('nexus_api_key', state.apiKey);
+        showPage();
+    } catch (e) {
+        showError('Erreur réseau: ' + e.message);
     }
 }
 
-// ─── Tables ─────────────────────────────────────────────────────────────────
-function renderTaskTable(tasks, containerId) {
+function showError(msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function doLogout() {
+    state.clientId = '';
+    sessionStorage.clear();
+    showPage();
+}
+
+// ─── View Switching ───────────────────────────────────────────
+function switchView(name, el) {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+
+    if (name === 'dashboard') loadDashboard();
+    if (name === 'captures') loadCaptures();
+    if (name === 'notifications') loadNotifications();
+    if (name === 'profile') loadProfile();
+}
+
+// ─── Dashboard ────────────────────────────────────────────────
+async function loadDashboard() {
+    document.getElementById('dashboard-project').textContent = state.project ? `📦 ${state.project}` : '';
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/stats`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const stats = await resp.json();
+        document.getElementById('stat-total').textContent = stats.total || 0;
+        document.getElementById('stat-resolved').textContent = stats.resolved || 0;
+        document.getElementById('stat-open').textContent = stats.open || 0;
+        document.getElementById('stat-rate').textContent = (stats.rate || 0) + '%';
+    } catch (e) {
+        document.getElementById('stat-total').textContent = '?';
+    }
+
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/captures?limit=10`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        renderCaptureTable(data.captures || [], 'recent-captures', true);
+    } catch (e) {
+        document.getElementById('recent-captures').innerHTML = '<div class="empty-state">Impossible de charger les captures</div>';
+    }
+}
+
+// ─── Captures ─────────────────────────────────────────────────
+async function loadCaptures() {
+    const el = document.getElementById('captures-table');
+    el.innerHTML = '<div class="empty-state">Chargement...</div>';
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/captures?limit=100`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        renderCaptureTable(data.captures || [], 'captures-table', false);
+    } catch (e) {
+        el.innerHTML = '<div class="empty-state">Impossible de charger les captures</div>';
+    }
+}
+
+function renderCaptureTable(captures, containerId, recent) {
     const el = document.getElementById(containerId);
-    if (!el) return;
-
-    if (tasks.length === 0) {
-        el.innerHTML = '<div style="padding: 32px; text-align: center; color: var(--text-muted);">Aucun bug trouvé</div>';
+    if (!captures.length) {
+        el.innerHTML = '<div class="empty-state">🎉 Aucune erreur capturée pour le moment</div>';
         return;
     }
-
-    let html = '<table class="table"><thead><tr><th>ID</th><th>Description</th><th>Priorité</th><th>Statut</th><th>Version</th><th>Date</th></tr></thead><tbody>';
-    tasks.slice(0, 50).forEach((t, i) => {
-        const desc = t.brief?.split('DESCRIPTION :')[1]?.trim()?.split('\n')[0]?.slice(0, 60) || t.brief?.slice(0, 60) || '—';
-        const version = t.result?.version || '—';
-        const date = t.created_at?.split('T')[0] || '—';
-        html += `<tr onclick="showTaskDetail('${t.task_id}')" style="animation-delay: ${0.05 + i * 0.02}s">
-            <td><code>${t.task_id}</code></td>
-            <td>${desc}</td>
-            <td><span class="badge badge-${t.priority || 'P2'}">${t.priority || 'P2'}</span></td>
-            <td><span class="badge badge-${t.status}">${t.status}</span></td>
-            <td>${version}</td>
-            <td>${date}</td>
+    let html = '<table class="table"><thead><tr>' +
+        '<th>ID</th><th>Type</th><th>Message</th><th>URL</th>' + (recent ? '' : '<th>Status</th>') + '<th>Date</th>' +
+        '</tr></thead><tbody>';
+    captures.forEach(c => {
+        const statusClass = c.nexus_status === 'fixed' ? 'badge-fixed' : (c.resolved ? 'badge-resolved' : 'badge-pending');
+        const statusLabel = c.nexus_status === 'fixed' ? '✅ Fixé' : (c.resolved ? '✅ Résolu' : '⏳ En attente');
+        const date = (c.created_at || '').split('T')[0] || '—';
+        const url = (c.url || '').length > 40 ? (c.url || '').slice(0, 40) + '…' : (c.url || '—');
+        html += `<tr onclick="showCaptureDetail(${c.id})">
+            <td><code>#${c.id}</code></td>
+            <td><span class="badge badge-error">${c.error_type || '?'}</span></td>
+            <td>${(c.error_message || '').slice(0, 50)}</td>
+            <td style="font-size:11px;color:var(--text-muted)">${url}</td>` +
+            (recent ? '' : `<td><span class="${statusClass}">${statusLabel}</span></td>`) +
+            `<td style="font-size:11px;color:var(--text-muted)">${date}</td>
         </tr>`;
     });
     html += '</tbody></table>';
     el.innerHTML = html;
 }
 
-async function showTaskDetail(taskId) {
-    try {
-        const report = await apiGet(`/report/${taskId}`);
-        const modal = document.getElementById('modal');
-        const body = document.getElementById('modal-body');
-        const r = report.result || {};
+// ─── Capture Detail ───────────────────────────────────────────
+async function showCaptureDetail(captureId) {
+    const modal = document.getElementById('modal');
+    const body = document.getElementById('modal-body');
+    body.innerHTML = '<div class="empty-state">Chargement...</div>';
+    modal.classList.remove('hidden');
 
-        let html = `<h2>Bug <code>${taskId}</code></h2>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0;">
-            <div><strong>Statut:</strong> <span class="badge badge-${report.status}">${report.status}</span></div>
-            <div><strong>Priorité:</strong> <span class="badge badge-${report.priority || 'P2'}">${report.priority || 'P2'}</span></div>
-            <div><strong>Version:</strong> ${r.version || '—'}</div>
-            <div><strong>Date:</strong> ${report.created_at?.split('T')[0] || '—'}</div>
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/captures/${captureId}`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        const c = data.capture || {};
+
+        let html = `
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <h2 style="margin-bottom:16px;">🐛 Capture #${c.id}</h2>
+            <div class="detail-card">
+                <h3>Erreur</h3>
+                <p style="color:var(--text-secondary);font-size:14px;">
+                    <span class="badge badge-error">${c.error_type || '?'}</span>
+                    ${(c.error_message || '').slice(0, 200)}
+                </p>
+            </div>
+            <div class="meta-grid">
+                <div class="meta-item"><div class="label">URL</div><div class="value">${c.url || '—'}</div></div>
+                <div class="meta-item"><div class="label">Status</div><div class="value">${c.status_code || '—'}</div></div>
+                <div class="meta-item"><div class="label">Version</div><div class="value">${c.version || '—'}</div></div>
+                <div class="meta-item"><div class="label">Environment</div><div class="value">${c.environment || '—'}</div></div>
+                <div class="meta-item"><div class="label">Date</div><div class="value">${(c.created_at || '').split('T')[0] || '—'}</div></div>
+                <div class="meta-item"><div class="label">Nexus Status</div><div class="value">${c.nexus_status || 'pending'}</div></div>
+            </div>`;
+
+        // Stack trace
+        if (c.stack_trace) {
+            html += `<div class="detail-card">
+                <h3>📜 Stack trace</h3>
+                <pre>${escapeHtml(c.stack_trace)}</pre>
+            </div>`;
+        }
+
+        // AI Report button
+        html += `<div class="detail-card">
+            <h3>🤖 Diagnostic IA</h3>
+            <button class="btn btn-sm btn-primary" onclick="generateReport(${c.id})">Générer le rapport</button>
+            <div id="ai-report-${c.id}" style="margin-top:12px;font-size:13px;color:var(--text-secondary);"></div>
         </div>`;
 
-        if (r.root_cause) html += `<div class="setting-card"><h3>🔍 Cause racine</h3><p class="setting-value">${r.root_cause}</p></div>`;
-        if (r.fix_summary) html += `<div class="setting-card"><h3>✅ Fix</h3><p class="setting-value">${r.fix_summary}</p></div>`;
-        if (r.context && Object.keys(r.context).length > 0) {
-            html += `<div class="setting-card"><h3>📦 Contexte</h3><pre style="font-size:12px;color:var(--text-secondary);overflow-x:auto;">${JSON.stringify(r.context, null, 2)}</pre></div>`;
-        }
-        if (r.breadcrumbs && r.breadcrumbs.length > 0) {
-            html += `<div class="setting-card"><h3>🥖 Breadcrumbs (${r.breadcrumbs.length})</h3>`;
-            r.breadcrumbs.slice(-10).forEach(b => {
-                html += `<div style="font-size:12px;color:var(--text-secondary);padding:2px 0;">${b.action || b.event || JSON.stringify(b)}</div>`;
-            });
-            html += '</div>';
-        }
-
-        modal.classList.remove('hidden');
         body.innerHTML = html;
     } catch (e) {
-        console.error('showTaskDetail error:', e);
+        body.innerHTML = `<div class="empty-state">Erreur: ${e.message}</div>`;
     }
 }
 
-function closeModal(e) {
-    if (e && e.target !== document.getElementById('modal')) return;
+async function generateReport(captureId) {
+    const el = document.getElementById('ai-report-' + captureId);
+    el.textContent = '⏳ Génération du rapport...';
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/captures/${captureId}/report`, {
+            method: 'POST',
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        el.innerHTML = `<pre style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:#6bc9a0;">${escapeHtml(data.report || 'Pas de rapport')}</pre>`;
+    } catch (e) {
+        el.innerHTML = `<span style="color:#ff6666;">Erreur: ${e.message}</span>`;
+    }
+}
+
+function closeModal() {
     document.getElementById('modal').classList.add('hidden');
 }
 
-// ─── Settings ────────────────────────────────────────────────────────────────
-async function renderSettings() {
-    const el = document.getElementById('settings-grid');
-    if (!el || !state.health) return;
-
-    const h = state.health;
-    const cards = [
-        { title: '🧬 Service', value: h.service, key: `Version ${h.version}` },
-        { title: '🤖 LLM Actif', value: h.llm?.provider || '?', key: `Modèle: ${h.llm?.model || '?'}` },
-        { title: '🔑 API Key', value: h.api_key_configured ? '✅ Configurée' : '❌ Manquante', key: 'Sécurité API' },
-        { title: '📊 Base de connaissance', value: h.kb_stats || '—', key: 'KB' },
-        { title: '🔗 Webhook GitHub', value: h.github_webhook ? '✅ Actif' : '⏸️ Inactif', key: 'GITHUB_SECRET' },
-        { title: '💬 Slack Notifications', value: h.slack_webhook ? '✅ Actives' : '⏸️ Inactives', key: 'SLACK_WEBHOOK_URL' },
-        { title: '📈 Prometheus', value: h.metrics_enabled ? '✅ Actif' : '❌ Inactif', key: '/metrics' },
-        { title: '🕐 Dernière màj', value: h.timestamp ? new Date(h.timestamp).toLocaleString() : '—', key: 'Timestamp' },
-    ];
-
-    el.innerHTML = cards.map(c => `
-        <div class="setting-card animate-fade-up stagger" data-index="${cards.indexOf(c)}">
-            <h3>${c.title}</h3>
-            <div class="setting-value">${c.value}</div>
-            <div class="setting-key">${c.key}</div>
-        </div>
-    `).join('');
-    applyStagger();
+// ─── Notifications ────────────────────────────────────────────
+async function loadNotifications() {
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/notifications`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.telegram_chat) {
+            document.getElementById('notif-telegram').value = data.telegram_chat;
+        }
+    } catch (e) {}
 }
 
-// ─── Nav Indicator Slide ────────────────────────────────────────────────────
-function updateNavIndicator(activeItem) {
-    const indicator = document.getElementById('nav-indicator');
-    if (!indicator || !activeItem) return;
-
-    const navItems = document.querySelector('.nav-items');
-    const itemRect = activeItem.getBoundingClientRect();
-    const navRect = navItems.getBoundingClientRect();
-
-    indicator.style.top = (itemRect.top - navRect.top) + 'px';
-    indicator.style.height = itemRect.height + 'px';
-}
-
-// ─── Ripple Effect ──────────────────────────────────────────────────────────
-function addRippleEffect(e) {
-    const btn = e.currentTarget;
-    const rect = btn.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const ripple = document.createElement('span');
-    ripple.className = 'ripple-effect';
-    ripple.style.left = x + 'px';
-    ripple.style.top = y + 'px';
-
-    btn.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 600);
-}
-
-// ─── Navigation ──────────────────────────────────────────────────────────────
-document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (state.animating) return;
-
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        this.classList.add('active');
-        updateNavIndicator(this);
-
-        const viewId = `view-${this.dataset.view}`;
-        const currentView = document.querySelector('.view.active');
-        const newView = document.getElementById(viewId);
-
-        if (currentView === newView) return;
-
-        state.animating = true;
-
-        // Exit current view
-        currentView.style.animation = 'viewExit 0.2s ease forwards';
-        setTimeout(() => {
-            currentView.classList.remove('active');
-            currentView.style.animation = '';
-
-            // Enter new view
-            newView.classList.add('active');
-            newView.style.animation = 'none';
-            newView.offsetHeight; // reflow
-            newView.style.animation = 'viewEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards';
-
-            if (this.dataset.view === 'analytics') {
-                renderAnalyticsCharts(state.tasks);
-            }
-            if (this.dataset.view === 'settings') {
-                renderSettings();
-            }
-
-            state.animating = false;
-        }, 200);
-    });
-});
-
-// ─── Init ───────────────────────────────────────────────────────────────────
-async function refreshAll() {
-    // Show skeleton while loading
-    showSkeleton('recent-table', 'rows', 5);
-    showSkeleton('tasks-table', 'rows', 8);
-
-    const online = await loadHealth();
-    const tasks = await loadTasks();
-    if (online) {
-        updateStats(tasks);
-        renderBugsChart(tasks);
-        renderTaskTable(tasks, 'recent-table');
-        renderTaskTable(tasks, 'tasks-table');
-        renderSettings();
-        renderAnalyticsCharts(tasks);
+async function saveNotifications() {
+    const telegram = document.getElementById('notif-telegram').value.trim();
+    const status = document.getElementById('notif-status');
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/notifications`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                telegram_chat: telegram,
+                whatsapp_phone: '',
+                slack_webhook: '',
+            }),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        status.textContent = '✅ Notifications enregistrées !';
+        status.style.color = '#6bc9a0';
+    } catch (e) {
+        status.textContent = '❌ Erreur: ' + e.message;
+        status.style.color = '#ff6666';
     }
 }
 
-// ─── Init on Load ───────────────────────────────────────────────────────────
+// ─── Profile ──────────────────────────────────────────────────
+async function loadProfile() {
+    document.getElementById('profile-id').textContent = state.clientId;
+    document.getElementById('profile-email').textContent = state.email;
+    document.getElementById('profile-project').textContent = state.project || '—';
+    document.getElementById('profile-plan').textContent = state.plan || 'starter';
+    document.getElementById('profile-created').textContent = '—';
+
+    // API key
+    if (state.apiKey) {
+        document.getElementById('profile-api-key').textContent = state.apiKey;
+        document.getElementById('show-key-btn').textContent = '👁️‍🗨️';
+    }
+
+    // .env example
+    document.getElementById('env-example').textContent =
+        `# watch-py configuration\n` +
+        `WATCH_API_KEY=${state.apiKey || 'sk-watch-votre-clé'}\n` +
+        `WATCH_HUB_URL=http://100.70.168.107:9000/hub\n` +
+        `WATCH_PROJECT=${state.project || 'mon-projet'}\n` +
+        `WATCH_ENVIRONMENT=production\n` +
+        `WATCH_VERSION=1.0.0`;
+
+    try {
+        const resp = await fetch(API_BASE + `/hub/${state.clientId}/profile`);
+        if (resp.ok) {
+            const data = await resp.json();
+            document.getElementById('profile-created').textContent = (data.created_at || '').split('T')[0] || '—';
+        }
+    } catch (e) {}
+}
+
+async function showApiKey() {
+    if (state.apiKey) {
+        document.getElementById('profile-api-key').textContent = state.apiKey;
+        document.getElementById('show-key-btn').textContent = '👁️‍🗨️';
+        return;
+    }
+    // Fetch from API if not in session
+    // For now, show placeholder
+    document.getElementById('profile-api-key').textContent = 'sk-watch-... (rechargez)';
+}
+
+// ─── Utilities ────────────────────────────────────────────────
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ─── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    // Stagger entrance
-    applyStagger();
-
-    // Set initial nav indicator
-    const activeNav = document.querySelector('.nav-item.active');
-    if (activeNav) updateNavIndicator(activeNav);
-
-    // Ripple on all ripple buttons
-    document.querySelectorAll('.ripple-btn').forEach(btn => {
-        btn.addEventListener('click', addRippleEffect);
-    });
-
-    // Load data
-    refreshAll();
+    showPage();
 });
-
-// Auto-refresh toutes les 30s
-setInterval(refreshAll, 30000);
