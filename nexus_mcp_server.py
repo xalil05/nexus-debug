@@ -81,28 +81,24 @@ async def search_code(query: str, path: str = "") -> str:
         return json.dumps({"status": "error", "error": str(e)})
 
 
-# ─── OUTIL 2 : sandbox_execute ────────────────────────────────────────────────
+# ─── OUTIL 2 : sandbox_execute — isolation Docker ──────────────────────────────
 @mcp.tool()
 async def sandbox_execute(code: str, language: str = "python", timeout: int = 10) -> str:
-    """Exécute du code Python court dans un environnement isolé (Python uniquement)."""
+    """Exécute du code Python dans un conteneur Docker isolé (sans réseau, mémoire limitée)."""
     import ast
-    import io
-    import sys
+    import tempfile
 
     if language != "python":
-        return json.dumps({"status": "error", "error": "Seul le langage 'python' est autorisé pour la sécurité"})
+        return json.dumps({"status": "error", "error": "Seul le langage 'python' est autorisé"})
 
-    # 1. Parse AST pour bloquer les patterns dangereux structurellement
+    # 1. Parse AST — première coupe (évite de gaspiller Docker sur du code trivialement dangereux)
     try:
         tree = ast.parse(code)
     except SyntaxError as e:
         return json.dumps({"status": "error", "error": f"Erreur de syntaxe: {e}"})
 
-    DANGEROUS_MODULES = {"os", "subprocess", "sys", "shutil", "ctypes",
+    DANGEROUS_MODULES = {"os", "subprocess", "shutil", "ctypes",
                          "socket", "requests", "httpx", "importlib", "builtins"}
-    DANGEROUS_FUNCS  = {"exec", "eval", "compile", "open", "__import__",
-                        "breakpoint", "memoryview"}
-
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
@@ -110,67 +106,50 @@ async def sandbox_execute(code: str, language: str = "python", timeout: int = 10
                 if top in DANGEROUS_MODULES:
                     return json.dumps({"status": "error",
                                        "error": f"Module non autorisé: {alias.name}"})
-        if isinstance(node, ast.Call):
-            fn = node.func
-            if isinstance(fn, ast.Name) and fn.id in DANGEROUS_FUNCS:
-                return json.dumps({"status": "error",
-                                   "error": f"Fonction interdite: {fn.id}()"})
-            # builtins.xxx() pattern
-            if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-                if fn.value.id == "builtins" and fn.attr in DANGEROUS_FUNCS:
-                    return json.dumps({"status": "error",
-                                       "error": f"builtins.{fn.attr}() interdit"})
 
-    # 2. Exécution dans un namespace restreint (pas de subprocess)
-    safe_builtins = {
-        name: getattr(__builtins__, name) if hasattr(__builtins__, name) else __builtins__[name]
-        for name in [
-            "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
-            "chr", "complex", "dict", "divmod", "enumerate", "filter", "float",
-            "format", "frozenset", "getattr", "hasattr", "hash", "hex", "id",
-            "int", "isinstance", "issubclass", "iter", "len", "list", "map",
-            "max", "min", "next", "object", "oct", "ord", "pow", "print",
-            "range", "repr", "reversed", "round", "set", "slice", "sorted",
-            "str", "sum", "tuple", "type", "zip",
-        ]
-    } if isinstance(__builtins__, dict) else {
-        name: getattr(__builtins__, name)
-        for name in [
-            "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
-            "chr", "complex", "dict", "divmod", "enumerate", "filter", "float",
-            "format", "frozenset", "getattr", "hasattr", "hash", "hex", "id",
-            "int", "isinstance", "issubclass", "iter", "len", "list", "map",
-            "max", "min", "next", "object", "oct", "ord", "pow", "print",
-            "range", "repr", "reversed", "round", "set", "slice", "sorted",
-            "str", "sum", "tuple", "type", "zip",
-        ]
-    }
-    namespace = {"__builtins__": safe_builtins}
-
+    # 2. Exécution dans un conteneur Docker isolé (sandbox sécurisé)
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, prefix="nexus_sandbox_")
     try:
-        # Timeout avec asyncio.wait_for
-        loop = asyncio.get_event_loop()
+        tmp.write(code)
+        tmp.close()
 
-        def _exec():
-            buf_out, buf_err = io.StringIO(), io.StringIO()
-            old_out, old_err = sys.stdout, sys.stderr
-            sys.stdout, sys.stderr = buf_out, buf_err
-            try:
-                exec(code, namespace)
-            finally:
-                sys.stdout, sys.stderr = old_out, old_err
-            return buf_out.getvalue()[:2000], buf_err.getvalue()[:2000]
+        cmd = [
+            "docker", "run", "--rm",
+            "--network", "none",
+            "--memory", "64m",
+            "--cpus", "0.25",
+            "--init",
+            "--pids-limit", "64",
+            "--read-only",
+            "--security-opt", "no-new-privileges:true",
+            "-v", f"{tmp.name}:/tmp/script.py:ro",
+            "python:3.11-slim",
+            "python", "/tmp/script.py",
+        ]
 
-        stdout, stderr = await asyncio.wait_for(
-            loop.run_in_executor(None, _exec), timeout=timeout
+        r = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=timeout),
         )
+
         return json.dumps({
-            "status": "success", "stdout": stdout, "stderr": stderr, "exit_code": 0,
+            "status": "success" if r.returncode == 0 else "error",
+            "stdout": r.stdout[:2000],
+            "stderr": r.stderr[:2000],
+            "exit_code": r.returncode,
         })
-    except asyncio.TimeoutError:
+    except subprocess.TimeoutExpired:
         return json.dumps({"status": "error", "error": "Timeout dépassé"})
+    except FileNotFoundError:
+        return json.dumps({"status": "error", "error": "Docker n'est pas disponible sur ce système"})
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
+    finally:
+        import os as _os
+        try:
+            _os.unlink(tmp.name)
+        except Exception:
+            pass
 
 
 # ─── OUTIL 3 : run_diagnostic ─────────────────────────────────────────────────
